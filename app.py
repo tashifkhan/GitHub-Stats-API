@@ -1,13 +1,42 @@
 # app.py
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from typing import List, Dict, Optional
 from datetime import datetime
 import httpx
 import os
+from dotenv import load_dotenv
 from pydantic import BaseModel
+import asyncio
 
-app = FastAPI()
+# Load environment variables
+load_dotenv()
+
+app = FastAPI(
+    title="GitHub Analytics API",
+    description="""
+    An API for analyzing GitHub user statistics, including:
+    * Language usage statistics
+    * Contribution history
+    * Commit streaks
+    * Overall GitHub activity metrics
+    
+    Use this API to get detailed insights into GitHub user activity patterns.
+    """,
+    version="1.0.0",
+    contact={
+        "name": "API Support",
+        "url": "https://github.com/yourusername/github-analytics-api",
+    },
+)
+
+@app.get("/",
+    tags=["General"],
+    summary="API Documentation",
+    description="Redirects to the API documentation page")
+async def root():
+    return RedirectResponse(url="/docs")
 
 # Enable CORS
 app.add_middleware(
@@ -174,7 +203,35 @@ def calculate_longest_streak(contribution_data: Dict) -> int:
     return longest_streak
 
 # Routes
-@app.get("/github/{username}/languages")
+@app.get("/{username}/languages",
+    tags=["User Analytics"],
+    summary="Get User's Programming Languages",
+    description="""
+    Retrieves the top programming languages used by a GitHub user based on their repositories.
+    
+    - Excludes specified languages (default: Markdown, JSON, YAML, XML)
+    - Returns top 5 languages by usage percentage
+    - Percentages are rounded to nearest integer
+    """,
+    response_description="List of top programming languages with usage percentages",
+    responses={
+        200: {
+            "description": "Successfully retrieved language statistics",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {"name": "Python", "percentage": 45},
+                        {"name": "JavaScript", "percentage": 30},
+                        {"name": "TypeScript", "percentage": 15},
+                        {"name": "Java", "percentage": 7},
+                        {"name": "C++", "percentage": 3}
+                    ]
+                }
+            }
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"}
+    })
 async def get_user_language_stats(
     username: str,
     excluded: List[str] = Query(
@@ -187,10 +244,40 @@ async def get_user_language_stats(
         raise HTTPException(status_code=500, detail="GitHub token not configured")
     return await get_language_stats(username, token, excluded)
 
-@app.get("/github/{username}/contributions")
+@app.get("/{username}/contributions",
+    tags=["User Analytics"],
+    summary="Get User's Contribution History",
+    description="""
+    Retrieves a user's GitHub contribution history including:
+    
+    - Contribution calendar data
+    - Total number of commits
+    - Longest contribution streak
+    
+    Optionally specify a starting year to limit the historical data.
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved contribution data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "contributions": {"2023": {"data": {"user": {"contributionsCollection": {"weeks": []}}}}},
+                        "totalCommits": 1234,
+                        "longestStreak": 30
+                    }
+                }
+            }
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"}
+    })
 async def get_user_contributions(
     username: str,
-    starting_year: Optional[int] = None
+    starting_year: Optional[int] = Query(
+        None,
+        description="Starting year for contribution history (defaults to account creation year)"
+    )
 ) -> Dict:
     token = os.getenv("GITHUB_TOKEN")
     if not token:
@@ -206,6 +293,65 @@ async def get_user_contributions(
         "longestStreak": longest_streak
     }
 
+@app.get("/{username}/stats",
+    tags=["User Analytics"],
+    summary="Get User's Complete Statistics",
+    description="""
+    Retrieves comprehensive GitHub statistics for a user, combining:
+    
+    - Top programming languages
+    - Total contribution count
+    - Longest contribution streak
+    
+    This endpoint provides a complete overview of a user's GitHub activity.
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved user statistics",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "topLanguages": [
+                            {"name": "Python", "percentage": 45}
+                        ],
+                        "totalCommits": 1234,
+                        "longestStreak": 30
+                    }
+                }
+            }
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"}
+    })
+async def get_user_stats(
+    username: str,
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated list of languages to exclude"
+    )
+):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    # Parse excluded languages from query parameter
+    excluded_list = exclude.split(",") if exclude else []
+
+    # Fetch contributions and languages concurrently
+    contribution_data, language_stats = await asyncio.gather(
+        get_contribution_graphs(username, token),
+        get_language_stats(username, token, excluded_list)
+    )
+
+    total_commits = calculate_total_commits(contribution_data)
+    longest_streak = calculate_longest_streak(contribution_data)
+
+    return {
+        "topLanguages": language_stats,
+        "totalCommits": total_commits,
+        "longestStreak": longest_streak
+    }
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, port=8000)
