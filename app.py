@@ -148,7 +148,14 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
         ]
 
         # Sort by percentage and get top 5
-        return sorted(language_stats, key=lambda x: x.percentage, reverse=True)[:5]
+        language_stats = [
+            LanguageData(
+            name=name,
+            percentage=round((bytes / total_bytes) * 100, 2)
+            )
+            for name, bytes in language_totals.items()
+        ]
+        return sorted(language_stats, key=lambda x: x.percentage, reverse=True)
 
 async def get_contribution_graphs(username: str, token: str, starting_year: Optional[int] = None) -> Dict:
     current_year = datetime.now().year
