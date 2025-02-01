@@ -1,4 +1,3 @@
-# app.py
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -10,7 +9,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 import asyncio
 
-# Load environment variables
 load_dotenv()
 
 app = FastAPI(
@@ -38,7 +36,6 @@ app = FastAPI(
 async def root():
     return RedirectResponse(url="/docs")
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -209,7 +206,7 @@ def calculate_longest_streak(contribution_data: Dict) -> int:
             
     return longest_streak
 
-# Routes
+# API Endpoints
 @app.get("/{username}/languages",
     tags=["User Analytics"],
     summary="Get User's Programming Languages",
