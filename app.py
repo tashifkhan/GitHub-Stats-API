@@ -109,7 +109,7 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
     async with httpx.AsyncClient() as client:
         # Fetch repositories
         repos_response = await client.get(
-            f"https://api.github.com/users/{username}/repos",
+            f"https://api.github.com/users/{username}/repos?type=all",
             headers={'Authorization': f'Bearer {token}'}
         )
         

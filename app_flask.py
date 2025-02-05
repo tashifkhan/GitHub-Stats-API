@@ -97,7 +97,7 @@ def build_contribution_graph_query(user: str, year: int) -> str:
 def get_language_stats(username: str, token: str, excluded_languages: List[str]) -> List[Dict[str, float]]:
     # Fetch repositories
     repos_response = requests.get(
-        f"https://api.github.com/users/{username}/repos",
+        f"https://api.github.com/users/{username}/repos?type=all",
         headers={'Authorization': f'Bearer {token}'}
     )
     
