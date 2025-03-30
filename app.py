@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, redirect, request
+from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -29,8 +29,9 @@ class GitHubStatsResponse:
             longestStreak=0
         )
 
-app = Flask(__name__)
-CORS(app)
+
+
+
 
 @dataclass
 class LanguageData:
@@ -185,9 +186,11 @@ def calculate_longest_streak(contribution_data: Dict) -> int:
             
     return longest_streak
 
+app = Flask(__name__)
+CORS(app)
 # Routes
 @app.route('/')
-def root():
+def docs():
     html = """
         <!DOCTYPE html>
         <html lang="en">
@@ -218,7 +221,6 @@ def root():
                 }
                 h1, h2, h3 {
                     color: var(--heading-color);
-                    border-bottom: 2px solid var(--secondary-color);
                     padding-bottom: 0.75rem;
                     margin-top: 2rem;
                     font-weight: 600;
@@ -227,18 +229,52 @@ def root():
                 h1 {
                     font-size: clamp(1.8rem, 4vw, 2.5rem);
                     margin-bottom: 2rem;
+                    border-bottom: 2px solid var(--secondary-color);
                 }
                 .endpoint {
                     background: var(--card-background);
                     border-radius: 12px;
-                    padding: 1.5rem;
+                    padding: 0;
                     margin: 1.5rem 0;
                     box-shadow: 0 10px 30px -15px rgba(2,12,27,0.7);
                     border: 1px solid var(--hover-color);
-                    transition: transform 0.2s ease-in-out;
+                    transition: all 0.2s ease-in-out;
+                    overflow: hidden;
                 }
-                .endpoint:hover {
-                    transform: translateY(-5px);
+                .endpoint-header {
+                    padding: 1.5rem;
+                    cursor: pointer;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    transition: background-color 0.2s ease;
+                }
+                .endpoint-header:hover {
+                    background-color: var(--hover-color);
+                }
+                .endpoint-header h2 {
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                }
+                .endpoint-content {
+                    max-height: 0;
+                    overflow: hidden;
+                    transition: max-height 0.3s ease;
+                    padding: 0 1.5rem;
+                }
+                .endpoint.active .endpoint-content {
+                    max-height: 5000px; /* Large enough to show all content */
+                    padding: 0 1.5rem 1.5rem;
+                }
+                .endpoint-toggle {
+                    font-size: 1.5rem;
+                    font-weight: bold;
+                    color: var(--secondary-color);
+                    transition: transform 0.3s ease;
+                }
+                .endpoint.active .endpoint-toggle {
+                    transform: rotate(45deg);
                 }
                 code {
                     background: var(--code-background);
@@ -266,80 +302,57 @@ def root():
                     font-size: 0.9em;
                 }
                 .parameter {
-                    margin: 1rem 0 1rem 1.5rem;
-                    padding: 1rem;
-                    border-left: 3px solid var(--secondary-color);
+                    margin: 1.5rem 0;
+                    padding: 1.25rem;
+                    border-left: 4px solid var(--secondary-color);
                     background: var(--hover-color);
                     border-radius: 0 8px 8px 0;
+                    box-shadow: 0 4px 12px -6px rgba(2,12,27,0.4);
+                    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+                }
+                .parameter:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 16px -6px rgba(2,12,27,0.5);
+                }
+                .parameter code {
+                    font-size: 0.95em;
+                    font-weight: 500;
+                    margin-right: 0.5rem;
                 }
                 .error-response {
                     border-left: 4px solid #ff79c6;
-                    padding: 1.5rem;
-                    margin: 1.5rem 0;
+                    padding: 1.25rem;
+                    margin: 1.25rem 0;
                     background: var(--hover-color);
                     border-radius: 0 8px 8px 0;
+                    overflow-x: auto;
                 }
                 .note {
                     background: var(--hover-color);
                     border-left: 4px solid var(--secondary-color);
-                    padding: 1.5rem;
-                    margin: 1.5rem 0;
+                    padding: 1.25rem;
+                    margin: 1.25rem 0;
                     border-radius: 0 8px 8px 0;
                 }
                 footer {
-                    margin-top: 4rem;
-                    padding-top: 2rem;
+                    margin-top: 3rem;
+                    padding-top: 1.5rem;
                     border-top: 1px solid var(--hover-color);
                     text-align: center;
                     color: var(--text-color);
                     font-size: 0.9em;
                 }
                 p {
-                    margin: 1.5rem 0;
-                    font-size: 1.1em;
-                }
-                ::selection {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                }
-                .copy-button {
-                    position: absolute;
-                    top: 0.5rem;
-                    right: 0.5rem;
-                    padding: 0.5rem;
-                    background: var(--hover-color);
-                    border: none;
-                    border-radius: 4px;
-                    color: var(--secondary-color);
-                    cursor: pointer;
-                    opacity: 0;
-                    transition: opacity 0.2s ease-in-out;
-                }
-                pre:hover .copy-button {
-                    opacity: 1;
-                }
-                .copy-button:hover {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                }
-                .copy-button.copied {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                }
-                .method {
-                    color: #ff79c6;
-                    font-weight: bold;
-                }
-                .path {
-                    color: var(--secondary-color);
+                    margin: 1.25rem 0;
+                    font-size: 1rem;
+                    line-height: 1.7;
                 }
                 @media (max-width: 768px) {
                     body {
                         padding: 1rem 0.75rem;
                     }
-                    .endpoint {
+                    .endpoint-header {
                         padding: 1.25rem;
-                        margin: 1.25rem 0;
                     }
                     pre {
                         padding: 1rem;
@@ -353,9 +366,8 @@ def root():
                     body {
                         padding: 1rem 0.5rem;
                     }
-                    .endpoint {
+                    .endpoint-header {
                         padding: 1rem;
-                        margin: 1rem 0;
                     }
                     h1 {
                         font-size: 1.8rem;
@@ -369,63 +381,188 @@ def root():
                         margin: 1rem 0;
                     }
                 }
+                .method {
+                    color: #ff79c6;
+                    font-weight: bold;
+                }
+                .path {
+                    color: var(--secondary-color);
+                }
+                .endpoint-method {
+                    display: inline-block;
+                    padding: 0.3rem 0.5rem;
+                    background: #ff79c6;
+                    color: var(--background-color);
+                    border-radius: 4px;
+                    font-weight: bold;
+                    margin-right: 0.5rem;
+                }
+                ::selection {
+                    background: var(--secondary-color);
+                    color: var(--background-color);
+                }
+                .error-section {
+                    margin: 2rem 0;
+                }
+                .error-section h2 {
+                    border-bottom: 2px solid var(--secondary-color);
+                    padding-bottom: 0.75rem;
+                }
+                .error-item {
+                    margin-bottom: 1rem;
+                }
+                .error-toggle {
+                    cursor: pointer;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1rem;
+                    background: var(--card-background);
+                    border-radius: 8px;
+                    margin-bottom: 1rem;
+                    border: 1px solid var(--hover-color);
+                }
+                .error-toggle:hover {
+                    background: var(--hover-color);
+                }
+                .error-toggle h3 {
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                }
+                .error-content {
+                    max-height: 0;
+                    overflow: hidden;
+                    transition: max-height 0.3s ease;
+                }
+                .error-item.active .error-content {
+                    max-height: 1000px;
+                }
+                .error-toggle-icon {
+                    font-size: 1.5rem;
+                    font-weight: bold;
+                    color: var(--secondary-color);
+                    transition: transform 0.3s ease;
+                }
+                .error-item.active .error-toggle-icon {
+                    transform: rotate(45deg);
+                }
             </style>
         </head>
         <body>
-            <h1>GitHub Analytics API Documentation</h1>
+            <h1>GitHub Stats API Documentation</h1>
             
-            <p>This API provides access to GitHub user statistics and contribution data.</p>
+            <p>This API provides access to GitHub user statistics and contribution data. Click on each endpoint to see details.</p>
 
             <div class="endpoint">
-                <h2>Language Statistics</h2>
-                <p>Get the programming languages used in a GitHub user's repositories.</p>
-                <p><code class="method">GET</code> <code class="path">/{username}/languages</code></p>
-                
-                <h3>Parameters</h3>
-                <div class="parameter">
-                    <code>exclude</code> Optional list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                <div class="endpoint-header">
+                    <h2><span class="endpoint-method">GET</span> Complete Statistics</h2>
+                    <span class="endpoint-toggle">+</span>
                 </div>
+                <div class="endpoint-content">
+                    <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.</p>
+                    <p><code class="path">/{username}/stats</code></p>
+                    
+                    <div class="parameter">
+                        <code>exclude</code> Optional comma-separated list of languages to exclude
+                    </div>
 
-                <div class="note">
-                    <h3>Example Request</h3>
-                    <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
-                </div>
+                    <div class="note">
+                        <h3>Example Request</h3>
+                        <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
+                    </div>
 
-                <div class="response">
-                    <h3>Response</h3>
-                    <pre><code>[
-    {"name": "Python", "percentage": 45},
-    {"name": "JavaScript", "percentage": 30},
-    {"name": "TypeScript", "percentage": 15},
-    {"name": "Java", "percentage": 7},
-    {"name": "C++", "percentage": 3}
-]</code></pre>
-                </div>
+                    <div class="response">
+                        <h3>Response</h3>
+                        <pre><code>{
+    "topLanguages": [
+        {"name": "Python", "percentage": 45}
+    ],
+    "totalCommits": 1234,
+    "longestStreak": 30,
+    "status": "success",
+    "message": "retrieved",
+    "contributions": {
+        "2023": {
+            "data": {
+                "user": {
+                    "contributionsCollection": {
+                        "weeks": []
+                    }
+                }
+            }
+        }
+    }
+}</code></pre>
+                    </div>
 
-                <div class="error-response">
-                    <h3>Error Responses</h3>
-                    <p><code>404</code> - User not found or API error</p>
-                    <p><code>500</code> - GitHub token configuration error</p>
+                    <div class="error-response">
+                        <h3>Error Responses</h3>
+                        <p><code>404</code> - User not found or API error</p>
+                        <p><code>500</code> - GitHub token configuration error</p>
+                    </div>
                 </div>
             </div>
 
             <div class="endpoint">
-                <h2>Contribution History</h2>
-                <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
-                <p><code class="method">GET</code> <code class="path">/{username}/contributions</code></p>
-                
-                <div class="parameter">
-                    <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
+                <div class="endpoint-header">
+                    <h2><span class="endpoint-method">GET</span> Language Statistics</h2>
+                    <span class="endpoint-toggle">+</span>
                 </div>
+                <div class="endpoint-content">
+                    <p>Get the programming languages used in a GitHub user's repositories.</p>
+                    <p><code class="path">/{username}/languages</code></p>
+                    
+                    <h3>Parameters</h3>
+                    <div class="parameter">
+                        <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                    </div>
 
-                <div class="note">
-                    <h3>Example Request</h3>
-                    <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
+                    <div class="note">
+                        <h3>Example Request</h3>
+                        <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
+                    </div>
+
+                    <div class="response">
+                        <h3>Response</h3>
+                        <pre><code>{
+    "topLanguages": [
+        {"name": "Python", "percentage": 45}
+    ],
+    "status": "success",
+    "message": "retrieved"
+}</code></pre>
+                    </div>
+
+                    <div class="error-response">
+                        <h3>Error Responses</h3>
+                        <p><code>404</code> - User not found or API error</p>
+                        <p><code>500</code> - GitHub token configuration error</p>
+                    </div>
                 </div>
+            </div>
 
-                <div class="response">
-                    <h3>Response</h3>
-                    <pre><code>{
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <h2><span class="endpoint-method">GET</span> Contribution History</h2>
+                    <span class="endpoint-toggle">+</span>
+                </div>
+                <div class="endpoint-content">
+                    <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
+                    <p><code class="path">/{username}/contributions</code></p>
+                    
+                    <div class="parameter">
+                        <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
+                    </div>
+
+                    <div class="note">
+                        <h3>Example Request</h3>
+                        <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
+                    </div>
+
+                    <div class="response">
+                        <h3>Response</h3>
+                        <pre><code>{
     "contributions": {
         "2023": {
             "data": {
@@ -438,46 +575,53 @@ def root():
         }
     },
     "totalCommits": 1234,
-    "longestStreak": 30
+    "longestStreak": 30,
+    "status": "success",
+    "message": "retrieved"
 }</code></pre>
-                </div>
+                    </div>
 
-                <div class="error-response">
-                    <h3>Error Responses</h3>
-                    <p><code>404</code> - User not found or API error</p>
-                    <p><code>500</code> - GitHub token configuration error</p>
+                    <div class="error-response">
+                        <h3>Error Responses</h3>
+                        <p><code>404</code> - User not found or API error</p>
+                        <p><code>500</code> - GitHub token configuration error</p>
+                    </div>
                 </div>
             </div>
 
-            <div class="endpoint">
-                <h2>Complete Statistics</h2>
-                <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.</p>
-                <p><code class="method">GET</code> <code class="path">/{username}/stats</code></p>
+            <div class="error-section">
+                <h2>Error Responses</h2>
                 
-                <div class="parameter">
-                    <code>exclude</code> Optional comma-separated list of languages to exclude
-                </div>
-
-                <div class="note">
-                    <h3>Example Request</h3>
-                    <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
-                </div>
-
-                <div class="response">
-                    <h3>Response</h3>
-                    <pre><code>{
-    "topLanguages": [
-        {"name": "Python", "percentage": 45}
-    ],
-    "totalCommits": 1234,
-    "longestStreak": 30
+                <div class="error-item">
+                    <div class="error-toggle">
+                        <h3>User not found</h3>
+                        <span class="error-toggle-icon">+</span>
+                    </div>
+                    <div class="error-content">
+                        <pre><code>{
+    "status": "error",
+    "message": "User not found or API error",
+    "topLanguages": [],
+    "totalCommits": 0,
+    "longestStreak": 0
 }</code></pre>
+                    </div>
                 </div>
 
-                <div class="error-response">
-                    <h3>Error Responses</h3>
-                    <p><code>404</code> - User not found or API error</p>
-                    <p><code>500</code> - GitHub token configuration error</p>
+                <div class="error-item">
+                    <div class="error-toggle">
+                        <h3>Server error</h3>
+                        <span class="error-toggle-icon">+</span>
+                    </div>
+                    <div class="error-content">
+                        <pre><code>{
+    "status": "error",
+    "message": "GitHub token not configured",
+    "topLanguages": [],
+    "totalCommits": 0,
+    "longestStreak": 0
+}</code></pre>
+                    </div>
                 </div>
             </div>
 
@@ -485,10 +629,37 @@ def root():
                 <p>GitHub Analytics API live at <a href="https://github-stats.tashif.codes" style="color: var(--secondary-color); text-decoration: none;">github-stats.tashif.codes</a></p>
                 <p>This API is open source and available on <a href="https://github.com/tashifkhan/GitHub-Stats-API.git" style="color: var(--secondary-color); text-decoration: none;">GitHub</a></p>
             </footer>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    // Handle endpoint toggles
+                    const endpoints = document.querySelectorAll('.endpoint');
+                    endpoints.forEach(endpoint => {
+                        const header = endpoint.querySelector('.endpoint-header');
+                        header.addEventListener('click', () => {
+                            endpoint.classList.toggle('active');
+                        });
+                    });
+                    
+                    // Handle error toggles
+                    const errorItems = document.querySelectorAll('.error-item');
+                    errorItems.forEach(item => {
+                        const toggle = item.querySelector('.error-toggle');
+                        toggle.addEventListener('click', () => {
+                            item.classList.toggle('active');
+                        });
+                    });
+                    
+                    // Make the first endpoint active by default for better UX
+                    if (endpoints.length > 0) {
+                        endpoints[0].classList.add('active');
+                    }
+                });
+            </script>
         </body>
         </html>
     """
-    return html
+    return render_template_string(html)
 
 @app.route('/<username>/languages')
 def get_user_language_stats(username: str):
