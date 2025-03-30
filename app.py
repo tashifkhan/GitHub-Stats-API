@@ -304,9 +304,8 @@ def docs():
                 .parameter {
                     margin: 1.5rem 0;
                     padding: 1.25rem;
-                    border-left: 4px solid var(--secondary-color);
                     background: var(--hover-color);
-                    border-radius: 0 8px 8px 0;
+                    border-radius: 8px;
                     box-shadow: 0 4px 12px -6px rgba(2,12,27,0.4);
                     transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
                 }
@@ -320,32 +319,17 @@ def docs():
                     margin-right: 0.5rem;
                 }
                 .error-response {
-                    border-left: 4px solid #ff79c6;
                     padding: 1.25rem;
                     margin: 1.25rem 0;
                     background: var(--hover-color);
-                    border-radius: 0 8px 8px 0;
+                    border-radius: 8px;
                     overflow-x: auto;
                 }
                 .note {
                     background: var(--hover-color);
-                    border-left: 4px solid var(--secondary-color);
                     padding: 1.25rem;
                     margin: 1.25rem 0;
-                    border-radius: 0 8px 8px 0;
-                }
-                footer {
-                    margin-top: 3rem;
-                    padding-top: 1.5rem;
-                    border-top: 1px solid var(--hover-color);
-                    text-align: center;
-                    color: var(--text-color);
-                    font-size: 0.9em;
-                }
-                p {
-                    margin: 1.25rem 0;
-                    font-size: 1rem;
-                    line-height: 1.7;
+                    border-radius: 8px;
                 }
                 @media (max-width: 768px) {
                     body {
