@@ -30,9 +30,6 @@ class GitHubStatsResponse:
         )
 
 
-
-
-
 @dataclass
 class LanguageData:
     name: str
@@ -430,6 +427,14 @@ def docs():
                 }
                 .error-item.active .error-toggle-icon {
                     transform: rotate(45deg);
+                }
+                footer {
+                    margin-top: 3rem;
+                    padding-top: 1.5rem;
+                    border-top: 1px solid var(--hover-color);
+                    text-align: center;
+                    color: var(--text-color);
+                    font-size: 0.9em;
                 }
             </style>
         </head>
