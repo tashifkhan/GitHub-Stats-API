@@ -1,6 +1,7 @@
-# GitHub Analytics API
+# GitHub Stats API
 
 A robust RESTful API built with FastAPI that retrieves and analyzes GitHub user data, including programming language statistics and contribution history.
+
 hosted at [github-stats.tashif.codes](htpps://github-stats.tashif.codes)
 
 ## Features
