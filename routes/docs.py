@@ -394,6 +394,93 @@ def docs():
                 </div>
             </div>
 
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <h2><span class="endpoint-method">GET</span> Repository Details</h2>
+                    <span class="endpoint-toggle">+</span>
+                </div>
+                <div class="endpoint-content">
+                    <p>Retrieves detailed information for each of the user's public repositories, including README (Base64 encoded), languages, and commit count.</p>
+                    <p><code class="path">/{username}/repos</code></p>
+                    
+                    <div class="note">
+                        <h3>Example Request</h3>
+                        <pre><code>GET /tashifkhan/repos</code></pre>
+                    </div>
+
+                    <div class="response">
+                        <h3>Response</h3>
+                        <pre><code>{
+    "status": "success",
+    "message": "retrieved repository details",
+    "topLanguages": [],
+    "totalCommits": 0,
+    "longestStreak": 0,
+    "repos": [
+        {
+            "title": "RepoName",
+            "description": "A cool project.",
+            "live_website_url": "https://example.com",
+            "languages": ["Python", "JavaScript"],
+            "num_commits": 42,
+            "readme": "BASE64_ENCODED_README_CONTENT"
+        }
+    ],
+    "commits": []
+}</code></pre>
+                    </div>
+
+                    <div class="error-response">
+                        <h3>Error Responses</h3>
+                        <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                        <p><code>500</code> - GitHub token configuration error or API error</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <h2><span class="endpoint-method">GET</span> Commit History</h2>
+                    <span class="endpoint-toggle">+</span>
+                </div>
+                <div class="endpoint-content">
+                    <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp.</p>
+                    <p><code class="path">/{username}/commits</code></p>
+
+                    <div class="note">
+                        <h3>Example Request</h3>
+                        <pre><code>GET /tashifkhan/commits</code></pre>
+                    </div>
+
+                    <div class="response">
+                        <h3>Response</h3>
+                        <pre><code>{
+    "status": "success",
+    "message": "retrieved commit history",
+    "topLanguages": [],
+    "totalCommits": 0,
+    "longestStreak": 0,
+    "repos": [],
+    "commits": [
+        {
+            "repo": "RepoName",
+            "message": "Fix: A critical bug",
+            "timestamp": "2023-01-01T12:00:00Z",
+            "sha": "commit_sha_hash",
+            "url": "https://github.com/user/repo/commit/sha"
+        }
+    ]
+}</code></pre>
+                    </div>
+
+                    <div class="error-response">
+                        <h3>Error Responses</h3>
+                        <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                        <p><code>500</code> - GitHub token configuration error or API error</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="error-section">
                 <h2>Error Responses</h2>
                 
