@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()                         
+
 from flask import Flask
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -22,10 +25,11 @@ def create_app(config_name=None):
     
     return app
 
+app = create_app()
+
 if __name__ == "__main__":
-    app = create_app()
-    app.run(
-        host=app.config.get('HOST', '0.0.0.0'),
-        port=app.config.get('PORT', 8989),
-        debug=app.config.get('DEBUG', False)
-    )
+    from gevent.pywsgi import WSGIServer
+    host = app.config.get('HOST', '0.0.0.0')
+    port = app.config.get('PORT', 8989)
+    http_server = WSGIServer((host, port), app)   
+    http_server.serve_forever()
