@@ -44,8 +44,56 @@ def docs():
                     margin-bottom: 2rem;
                     border-bottom: 2px solid var(--secondary-color);
                 }
-                .endpoint {
+                
+                /* API Section Styles */
+                .api-section {
+                    border-radius: 12px;
+                    margin: 2.5rem 0;
+                    box-shadow: 0 10px 30px -15px rgba(2,12,27,0.7);
+                    border: 1px solid var(--hover-color);
+                    overflow: hidden;
                     background: var(--card-background);
+                }
+                .section-header {
+                    padding: 1.5rem;
+                    cursor: pointer;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    transition: background-color 0.2s ease;
+                }
+                .section-header:hover {
+                    background-color: var(--hover-color);
+                }
+                .section-header h2 {
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                    font-size: 1.6rem; 
+                    color: var(--heading-color);
+                }
+                .section-content {
+                    max-height: 0;
+                    overflow: hidden;
+                    transition: max-height 0.35s ease-out;
+                    padding: 0 1.5rem;
+                }
+                .api-section.active .section-content {
+                    max-height: 10000px; /* Large enough for all content */
+                    padding: 0.5rem 1.5rem 1.5rem;
+                }
+                .section-toggle {
+                    font-size: 1.8rem;
+                    font-weight: bold;
+                    color: var(--secondary-color);
+                    transition: transform 0.3s ease;
+                }
+                .api-section.active .section-toggle {
+                    transform: rotate(180deg);
+                }
+                
+                .endpoint {
+                    background: #172a45;
                     border-radius: 12px;
                     padding: 0;
                     margin: 1.5rem 0;
@@ -69,6 +117,14 @@ def docs():
                     margin: 0;
                     padding: 0;
                     border: none;
+                    font-size: 1.1rem;
+                    display: flex;
+                    align-items: center;
+                }
+                .endpoint-header h2 .path {
+                    margin-left: 0.5rem;
+                    margin-right: 0.5rem;
+                    font-weight: 600;
                 }
                 .endpoint-content {
                     max-height: 0;
@@ -148,8 +204,24 @@ def docs():
                     body {
                         padding: 1rem 0.75rem;
                     }
+                    .section-header {
+                        padding: 1.25rem;
+                    }
+                    .section-header h2 {
+                        font-size: 1.4rem;
+                    }
                     .endpoint-header {
                         padding: 1.25rem;
+                    }
+                    .endpoint-header h2 {
+                        font-size: 1rem;
+                        flex-direction: column;
+                        align-items: flex-start;
+                    }
+                    .endpoint-header h2 .path {
+                        margin-left: 0;
+                        margin-top: 0.25rem;
+                        margin-bottom: 0.25rem;
                     }
                     pre {
                         padding: 1rem;
@@ -163,8 +235,17 @@ def docs():
                     body {
                         padding: 1rem 0.5rem;
                     }
+                    .section-header {
+                        padding: 1rem;
+                    }
+                    .section-header h2 {
+                        font-size: 1.3rem;
+                    }
                     .endpoint-header {
                         padding: 1rem;
+                    }
+                    .endpoint-header h2 {
+                        font-size: 0.9rem;
                     }
                     h1 {
                         font-size: 1.8rem;
@@ -259,65 +340,65 @@ def docs():
             
             <p>This API provides access to GitHub user statistics and contribution data. Click on each endpoint to see details.</p>
 
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <h2><span class="endpoint-method">GET</span> Complete Statistics</h2>
-                    <span class="endpoint-toggle">+</span>
+            <!-- General Section -->
+            <div class="api-section">
+                <div class="section-header">
+                    <h2>General</h2>
+                    <span class="section-toggle">&#9660;</span>
                 </div>
-                <div class="endpoint-content">
-                    <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.</p>
-                    <p><code class="path">/{username}/stats</code></p>
-                    
-                    <div class="parameter">
-                        <code>exclude</code> Optional comma-separated list of languages to exclude
-                    </div>
-
-                    <div class="note">
-                        <h3>Example Request</h3>
-                        <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
-                    </div>
-
-                    <div class="response">
-                        <h3>Response</h3>
-                        <pre><code class="language-json">{
-    "topLanguages": [
-        {"name": "Python", "percentage": 45}
-    ],
-    "totalCommits": 1234,
-    "longestStreak": 30
-}</code></pre>
-                    </div>
-
-                    <div class="error-response">
-                        <h3>Error Responses</h3>
-                        <p><code>404</code> - User not found or API error</p>
-                        <p><code>500</code> - GitHub token configuration error</p>
+                <div class="section-content">
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/</code> API Documentation</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Provides the documentation for the API (this page).</p>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /</code></pre>
+                            </div>
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+    &lt;head&gt;...&lt;/head&gt;
+    &lt;body&gt;... API Documentation ...&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <h2><span class="endpoint-method">GET</span> Language Statistics</h2>
-                    <span class="endpoint-toggle">+</span>
+            <!-- User Analytics Section -->
+            <div class="api-section">
+                <div class="section-header">
+                    <h2>User Analytics</h2>
+                    <span class="section-toggle">&#9660;</span>
                 </div>
-                <div class="endpoint-content">
-                    <p>Get the programming languages used in a GitHub user's repositories.</p>
-                    <p><code class="path">/{username}/languages</code></p>
-                    
-                    <h3>Parameters</h3>
-                    <div class="parameter">
-                        <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
-                    </div>
+                <div class="section-content">
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/languages</code> Get User's Programming Languages</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Get the programming languages used in a GitHub user's repositories.</p>
+                            
+                            <h3>Parameters</h3>
+                            <div class="parameter">
+                                <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                            </div>
 
-                    <div class="note">
-                        <h3>Example Request</h3>
-                        <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
-                    </div>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
+                            </div>
 
-                    <div class="response">
-                        <h3>Response</h3>
-                        <pre><code class="language-json">[
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">[
     {
         "name": "Python", 
         "percentage": 45.0
@@ -327,37 +408,36 @@ def docs():
         "percentage": 30.0
     }
 ]</code></pre>
+                            </div>
+
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found or API error</p>
+                                <p><code>500</code> - GitHub token configuration error</p>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="error-response">
-                        <h3>Error Responses</h3>
-                        <p><code>404</code> - User not found or API error</p>
-                        <p><code>500</code> - GitHub token configuration error</p>
-                    </div>
-                </div>
-            </div>
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/contributions</code> Get User's Contribution History</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
+                            
+                            <div class="parameter">
+                                <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
+                            </div>
 
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <h2><span class="endpoint-method">GET</span> Contribution History</h2>
-                    <span class="endpoint-toggle">+</span>
-                </div>
-                <div class="endpoint-content">
-                    <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
-                    <p><code class="path">/{username}/contributions</code></p>
-                    
-                    <div class="parameter">
-                        <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
-                    </div>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
+                            </div>
 
-                    <div class="note">
-                        <h3>Example Request</h3>
-                        <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
-                    </div>
-
-                    <div class="response">
-                        <h3>Response</h3>
-                        <pre><code class="language-json">{
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">{
     "contributions": {
         "2023": {
             "data": {
@@ -372,33 +452,77 @@ def docs():
     "totalCommits": 1234,
     "longestStreak": 30
 }</code></pre>
+                            </div>
+
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found or API error</p>
+                                <p><code>500</code> - GitHub token configuration error</p>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="error-response">
-                        <h3>Error Responses</h3>
-                        <p><code>404</code> - User not found or API error</p>
-                        <p><code>500</code> - GitHub token configuration error</p>
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stats</code> Get User's Complete Statistics</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.</p>
+                            
+                            <div class="parameter">
+                                <code>exclude</code> Optional comma-separated list of languages to exclude
+                            </div>
+
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
+                            </div>
+
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">{
+    "topLanguages": [
+        {"name": "Python", "percentage": 45}
+    ],
+    "totalCommits": 1234,
+    "longestStreak": 30
+}</code></pre>
+                            </div>
+
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found or API error</p>
+                                <p><code>500</code> - GitHub token configuration error</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <h2><span class="endpoint-method">GET</span> Repository Details</h2>
-                    <span class="endpoint-toggle">+</span>
+            <!-- Dashboard Details Section -->
+            <div class="api-section">
+                <div class="section-header">
+                    <h2>Dashboard Details</h2>
+                    <span class="section-toggle">&#9660;</span>
                 </div>
-                <div class="endpoint-content">
-                    <p>Retrieves detailed information for each of the user's public repositories, including README (Base64 encoded), languages, and commit count.</p>
-                    <p><code class="path">/{username}/repos</code></p>
-                    
-                    <div class="note">
-                        <h3>Example Request</h3>
-                        <pre><code>GET /tashifkhan/repos</code></pre>
-                    </div>
+                <div class="section-content">
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/repos</code> Get User's Repository Details</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Retrieves detailed information for each of the user's public repositories, including README (Base64 encoded), languages, and commit count.</p>
+                            
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/repos</code></pre>
+                            </div>
 
-                    <div class="response">
-                        <h3>Response</h3>
-                        <pre><code class="language-json">[
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">[
     {
         "title": "RepoName",
         "description": "A cool project.",
@@ -408,33 +532,32 @@ def docs():
         "readme": "BASE64_ENCODED_README_CONTENT"
     }
 ]</code></pre>
+                            </div>
+
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="error-response">
-                        <h3>Error Responses</h3>
-                        <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                        <p><code>500</code> - GitHub token configuration error or API error</p>
-                    </div>
-                </div>
-            </div>
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/commits</code> Get User's Commit History Across All Repositories</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp.</p>
 
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <h2><span class="endpoint-method">GET</span> Commit History</h2>
-                    <span class="endpoint-toggle">+</span>
-                </div>
-                <div class="endpoint-content">
-                    <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp.</p>
-                    <p><code class="path">/{username}/commits</code></p>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/commits</code></pre>
+                            </div>
 
-                    <div class="note">
-                        <h3>Example Request</h3>
-                        <pre><code>GET /tashifkhan/commits</code></pre>
-                    </div>
-
-                    <div class="response">
-                        <h3>Response</h3>
-                        <pre><code class="language-json">[
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">[
     {
         "repo": "RepoName",
         "message": "Fix: A critical bug",
@@ -443,12 +566,14 @@ def docs():
         "url": "https://github.com/user/repo/commit/sha"
     }
 ]</code></pre>
-                    </div>
+                            </div>
 
-                    <div class="error-response">
-                        <h3>Error Responses</h3>
-                        <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                        <p><code>500</code> - GitHub token configuration error or API error</p>
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -505,6 +630,15 @@ def docs():
                         });
                     });
                     
+                    // Handle API section toggles
+                    const apiSections = document.querySelectorAll('.api-section');
+                    apiSections.forEach(section => {
+                        const header = section.querySelector('.section-header');
+                        header.addEventListener('click', () => {
+                            section.classList.toggle('active');
+                        });
+                    });
+                    
                     // Handle error toggles
                     const errorItems = document.querySelectorAll('.error-item');
                     errorItems.forEach(item => {
@@ -514,10 +648,10 @@ def docs():
                         });
                     });
                     
-                    // Make the first endpoint active by default for better UX
-                    if (endpoints.length > 0) {
-                        endpoints[0].classList.add('active');
-                    }
+                    // Make all API sections active by default
+                    apiSections.forEach(section => {
+                        section.classList.add('active');
+                    });
                 });
             </script>
         </body>
