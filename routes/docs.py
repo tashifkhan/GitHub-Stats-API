@@ -712,6 +712,9 @@ docs_html_content = """
         </html>
     """
 
-@docs_router.get("/", response_class=HTMLResponse)
-async def docs():
-    return docs_html_content
+@docs_router.get("/", response_class=HTMLResponse, tags=["Documentation"])
+async def get_custom_documentation():
+    """
+    Serves the custom HTML API documentation page.
+    """
+    return HTMLResponse(content=docs_html_content)
