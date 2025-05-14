@@ -1,11 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
-
-from routes.api import api_router 
-from routes.docs import docs_html_content 
 
 load_dotenv()
 
@@ -30,25 +26,14 @@ app = FastAPI(
     },
 )
 
-# CORS Middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"], # Allows all methods
-    allow_headers=["*"], # Allows all headers
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Include API routes
-app.include_router(api_router, prefix="/api") # Added a /api prefix for clarity
-
-# Serve custom HTML documentation at the root
-@app.get("/", response_class=HTMLResponse, tags=["Documentation"])
-async def get_custom_documentation():
-    """
-    Serves the custom HTML API documentation page.
-    """
-    return HTMLResponse(content=docs_html_content)
 
 if __name__ == "__main__":
     import uvicorn

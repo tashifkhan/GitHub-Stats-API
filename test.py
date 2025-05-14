@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 import asyncio
 import re
-import base64
 from routes.docs import docs_html_content
 
 load_dotenv()
@@ -42,12 +41,12 @@ app = FastAPI(
 # async def root():
 #     return RedirectResponse(url="/docs")
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 GITHUB_API = "https://api.github.com"
 
