@@ -105,7 +105,7 @@ async def execute_graphql_query(query: str, token: str) -> Dict:
         )
         return response.json()
 
-def build_contribution_graph_query(user: str, year: int) -> str:
+async def build_contribution_graph_query(user: str, year: int) -> str:
     start = f"{year}-01-01T00:00:00Z"
     end = f"{year}-12-31T23:59:59Z"
     return f"""
