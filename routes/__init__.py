@@ -1,7 +1,11 @@
-def register_routes(app):
-    """Register all application routes."""
-    from .api import api_bp
-    from .docs import docs_bp
-    
-    app.register_blueprint(docs_bp)
-    app.register_blueprint(api_bp)
+from .analytics import analytics_router
+from .api import api_router
+from .dashboard import dashboard_router
+from .docs import docs_router
+
+__all__ = [
+    "analytics_router",
+    "api_router",
+    "dashboard_router",
+    "docs_router",
+]
