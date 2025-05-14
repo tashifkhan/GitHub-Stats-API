@@ -1,5 +1,4 @@
 from .analytics import analytics_router
-from .api import api_router
 from .dashboard import dashboard_router
 from .docs import docs_router
 

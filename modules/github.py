@@ -4,12 +4,10 @@ from pydantic import BaseModel
 class GitHubStatsResponse(BaseModel):
     status: str
     message: str
-    topLanguages: List[Dict[str, float]]
+    topLanguages: List['LanguageData']
     totalCommits: int
     longestStreak: int
     contributions: Optional[Dict] = None
-    repos: Optional[List['RepoDetail']] = []
-    commits: Optional[List['CommitDetail']] = []
 
     @classmethod
     def error(cls, status: str, message: str):
@@ -19,8 +17,6 @@ class GitHubStatsResponse(BaseModel):
             topLanguages=[],
             totalCommits=0,
             longestStreak=0,
-            repos=[],
-            commits=[]
         )
 
 

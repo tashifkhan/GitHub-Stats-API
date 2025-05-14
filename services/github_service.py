@@ -84,7 +84,7 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
 async def get_contribution_graphs(username: str, token: str, starting_year: Optional[int] = None) -> Dict:
     current_year = datetime.now().year
     
-    query = build_contribution_graph_query(username, current_year)
+    query = await build_contribution_graph_query(username, current_year)
     initial_response = await execute_graphql_query(query, token)
     
     if not initial_response.get('data', {}).get('user'):
@@ -96,7 +96,7 @@ async def get_contribution_graphs(username: str, token: str, starting_year: Opti
     
     responses = {}
     for year in range(minimum_year, current_year + 1):
-        query = build_contribution_graph_query(username, year)
+        query = await build_contribution_graph_query(username, year)
         response = await execute_graphql_query(query, token)
         responses[year] = response
     

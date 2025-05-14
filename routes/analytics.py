@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi.responses import JSONResponse
 from typing import Dict, List, Optional
 from modules.github import LanguageData
 import os
@@ -107,50 +108,102 @@ async def get_user_contributions(
     - Top programming languages
     - Total contribution count
     - Longest contribution streak
+    - Contribution history data
     
     This endpoint provides a complete overview of a user's GitHub activity.
     """,
+    response_model=GitHubStatsResponse, 
     responses={
         200: {
             "description": "Successfully retrieved user statistics",
             "content": {
                 "application/json": {
                     "example": {
-                        "topLanguages": [
-                            {"name": "Python", "percentage": 45}
-                        ],
+                        "status": "success",
+                        "message": "retrieved",
+                        "topLanguages": [{"name": "Python", "percentage": 45.0}],
                         "totalCommits": 1234,
-                        "longestStreak": 30
+                        "longestStreak": 30,
+                        "contributions": {"2023": {"data": {"user": {"contributionsCollection": {"contributionCalendar": {"weeks": []}}}}}},
+
                     }
                 }
             }
         },
-        404: {"description": "User not found"},
-        500: {"description": "GitHub token configuration error"}
+        404: {
+            "description": "User not found or API error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "message": "User not found or API error",
+                        "topLanguages": [],
+                        "totalCommits": 0,
+                        "longestStreak": 0,
+                        "contributions": None,
+
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "GitHub token configuration error or other server error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "error",
+                        "message": "GitHub token not configured",
+                        "topLanguages": [],
+                        "totalCommits": 0,
+                        "longestStreak": 0,
+                        "contributions": None,
+
+                    }
+                }
+            }
+        }
     })
 async def get_user_stats(
-    username: str,
+    username: str = Path(..., description="GitHub username"),
     exclude: Optional[str] = Query(
         None,
-        description="Comma-separated list of languages to exclude"
+        description="Comma-separated list of languages to exclude from language stats"
     )
-):
+) -> GitHubStatsResponse:
     token = os.getenv("GITHUB_TOKEN")
     if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
+        error_response = GitHubStatsResponse.error(status="error", message="GitHub token not configured")
+        return JSONResponse(content=error_response.model_dump(), status_code=500)
 
-    excluded_list = exclude.split(",") if exclude else []
+    excluded_list = exclude.split(',') if exclude else []
 
-    contribution_data, language_stats = await asyncio.gather(
-        get_contribution_graphs(username, token),
-        get_language_stats(username, token, excluded_list)
-    )
+    try:
+        contribution_data = await get_contribution_graphs(username, token)
+    except HTTPException as e:
+        if e.status_code == 404:
+            error_response = GitHubStatsResponse.error(status="error", message="User not found or API error fetching contributions")
+            return JSONResponse(content=error_response.model_dump(), status_code=404)
+        error_response = GitHubStatsResponse.error(status="error", message=str(e.detail))
+        return JSONResponse(content=error_response.model_dump(), status_code=getattr(e, "status_code", 500))
 
+    try:
+        language_stats = await get_language_stats(username, token, excluded_list)
+    except HTTPException as e:
+        if e.status_code == 404: 
+            error_response = GitHubStatsResponse.error(status="error", message="User not found or API error fetching language stats")
+            return JSONResponse(content=error_response.model_dump(), status_code=404)
+        error_response = GitHubStatsResponse.error(status="error", message=str(e.detail))
+        return JSONResponse(content=error_response.model_dump(), status_code=getattr(e, "status_code", 500))
+        
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
 
-    return {
-        "topLanguages": language_stats,
-        "totalCommits": total_commits,
-        "longestStreak": longest_streak
-    }
+    response = GitHubStatsResponse(
+        status="success",
+        message="retrieved",
+        topLanguages=language_stats,
+        totalCommits=total_commits,
+        longestStreak=longest_streak,
+        contributions=contribution_data
+    )
+    return response
