@@ -25,28 +25,33 @@ def _get_commit_count(owner: str, repo_name: str, token: str) -> int:
     commits_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/commits?per_page=1"
     try:
         response = requests.get(commits_url, headers=_github_headers(token))
+        
         if response.status_code == 200:
             link_header = response.headers.get('Link')
             if link_header:
                 match = re.search(r'<.*?page=(\d+)>; rel="last"', link_header)
                 if match:
                     return int(match.group(1))
+            # No 'last' link, implies a single page of results or an empty repo if per_page=1 was used.
+            # If per_page=1, and the response is 200, then response.json() will be a list with one commit object, or an empty list.
             page_commits = response.json()
-            if page_commits and isinstance(page_commits, list):
-                commits_check_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/commits?per_page=1"
-                resp_check = requests.get(commits_check_url, headers=_github_headers(token))
-                if resp_check.status_code == 200 and resp_check.json():
-                    return 1
-                else:
-                    return 0
+            return 1 if isinstance(page_commits, list) and page_commits else 0
+
+        elif response.status_code == 409: # Empty repository
             return 0
-        elif response.status_code in [404, 403, 409]:
+        elif response.status_code in [404, 403]: # Not found or forbidden
             return 0
-        response.raise_for_status()
+        
+        # For other status codes that are not 200, 409, 404, 403, raise an error.
+        response.raise_for_status() 
+        return 0 # Should ideally not be reached if raise_for_status() is effective.
+        
+    except requests.exceptions.HTTPError: # Catch errors from raise_for_status()
+        # Log error or handle as needed, returning 0 for now.
         return 0
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException: # Network error, timeout, etc.
         return 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError): # JSON parsing error or unexpected structure from response.json()
         return 0
 
 def _fetch_repo_details(repo_data: Dict[str, Any], token: str) -> Optional[RepoDetail]:

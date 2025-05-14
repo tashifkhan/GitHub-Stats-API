@@ -279,25 +279,12 @@ def docs():
 
                     <div class="response">
                         <h3>Response</h3>
-                        <pre><code>{
+                        <pre><code class="language-json">{
     "topLanguages": [
         {"name": "Python", "percentage": 45}
     ],
     "totalCommits": 1234,
-    "longestStreak": 30,
-    "status": "success",
-    "message": "retrieved",
-    "contributions": {
-        "2023": {
-            "data": {
-                "user": {
-                    "contributionsCollection": {
-                        "weeks": []
-                    }
-                }
-            }
-        }
-    }
+    "longestStreak": 30
 }</code></pre>
                     </div>
 
@@ -330,13 +317,16 @@ def docs():
 
                     <div class="response">
                         <h3>Response</h3>
-                        <pre><code>{
-    "topLanguages": [
-        {"name": "Python", "percentage": 45}
-    ],
-    "status": "success",
-    "message": "retrieved"
-}</code></pre>
+                        <pre><code class="language-json">[
+    {
+        "name": "Python", 
+        "percentage": 45.0
+    },
+    {
+        "name": "JavaScript", 
+        "percentage": 30.0
+    }
+]</code></pre>
                     </div>
 
                     <div class="error-response">
@@ -367,7 +357,7 @@ def docs():
 
                     <div class="response">
                         <h3>Response</h3>
-                        <pre><code>{
+                        <pre><code class="language-json">{
     "contributions": {
         "2023": {
             "data": {
@@ -380,9 +370,7 @@ def docs():
         }
     },
     "totalCommits": 1234,
-    "longestStreak": 30,
-    "status": "success",
-    "message": "retrieved"
+    "longestStreak": 30
 }</code></pre>
                     </div>
 
@@ -410,24 +398,16 @@ def docs():
 
                     <div class="response">
                         <h3>Response</h3>
-                        <pre><code>{
-    "status": "success",
-    "message": "retrieved repository details",
-    "topLanguages": [],
-    "totalCommits": 0,
-    "longestStreak": 0,
-    "repos": [
-        {
-            "title": "RepoName",
-            "description": "A cool project.",
-            "live_website_url": "https://example.com",
-            "languages": ["Python", "JavaScript"],
-            "num_commits": 42,
-            "readme": "BASE64_ENCODED_README_CONTENT"
-        }
-    ],
-    "commits": []
-}</code></pre>
+                        <pre><code class="language-json">[
+    {
+        "title": "RepoName",
+        "description": "A cool project.",
+        "live_website_url": "https://example.com",
+        "languages": ["Python", "JavaScript"],
+        "num_commits": 42,
+        "readme": "BASE64_ENCODED_README_CONTENT"
+    }
+]</code></pre>
                     </div>
 
                     <div class="error-response">
@@ -454,23 +434,15 @@ def docs():
 
                     <div class="response">
                         <h3>Response</h3>
-                        <pre><code>{
-    "status": "success",
-    "message": "retrieved commit history",
-    "topLanguages": [],
-    "totalCommits": 0,
-    "longestStreak": 0,
-    "repos": [],
-    "commits": [
-        {
-            "repo": "RepoName",
-            "message": "Fix: A critical bug",
-            "timestamp": "2023-01-01T12:00:00Z",
-            "sha": "commit_sha_hash",
-            "url": "https://github.com/user/repo/commit/sha"
-        }
-    ]
-}</code></pre>
+                        <pre><code class="language-json">[
+    {
+        "repo": "RepoName",
+        "message": "Fix: A critical bug",
+        "timestamp": "2023-01-01T12:00:00Z",
+        "sha": "commit_sha_hash",
+        "url": "https://github.com/user/repo/commit/sha"
+    }
+]</code></pre>
                     </div>
 
                     <div class="error-response">

@@ -21,28 +21,14 @@ def get_user_language_stats(username: str):
         error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
         return jsonify(asdict(error_response)), 500
 
-    excluded = request.args.getlist('excluded')
-    if not excluded:
-        excluded_param = request.args.get('exclude')
-        if excluded_param:
-            excluded = [lang.strip() for lang in excluded_param.split(',')]
-        else:
-            excluded = ["Markdown", "JSON", "YAML", "XML"]
-
-    language_stats = get_language_stats(username, token, excluded)
+    excluded = request.args.getlist('excluded') or ["Markdown", "JSON", "YAML", "XML"]
     
-    if language_stats is None:
-        error_response = GitHubStatsResponse.error("error", "Failed to retrieve language statistics")
-        return jsonify(asdict(error_response)), 500
+    language_stats_data = get_language_stats(username, token, excluded)
+    
+    if language_stats_data is None:
+        pass
 
-    response = GitHubStatsResponse(
-        status="success",
-        message="retrieved",
-        topLanguages=language_stats,
-        totalCommits=0,
-        longestStreak=0
-    )
-    return jsonify(asdict(response))
+    return jsonify(language_stats_data)
 
 @api_bp.route('/<username>/contributions')
 def get_user_contributions(username: str):
@@ -69,15 +55,12 @@ def get_user_contributions(username: str):
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
 
-    response = GitHubStatsResponse(
-        status="success",
-        message="retrieved",
-        topLanguages=[],
-        totalCommits=total_commits,
-        longestStreak=longest_streak,
-        contributions=contribution_data
-    )
-    return jsonify(asdict(response))
+    response_payload = {
+        "contributions": contribution_data,
+        "totalCommits": total_commits,
+        "longestStreak": longest_streak
+    }
+    return jsonify(response_payload)
 
 @api_bp.route('/<username>/stats')
 def get_user_stats(username: str):
@@ -86,27 +69,25 @@ def get_user_stats(username: str):
         error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
         return jsonify(asdict(error_response)), 500
 
-    exclude = request.args.get('exclude')
-    excluded_list = [lang.strip() for lang in exclude.split(",")] if exclude else ["Markdown", "JSON", "YAML", "XML"]
+    exclude_param = request.args.get('exclude')
+    excluded_list = [lang.strip() for lang in exclude_param.split(',')] if exclude_param else []
 
     contribution_data = get_contribution_graphs(username, token)
     if not contribution_data:
         error_response = GitHubStatsResponse.error("error", "User not found or API error fetching contributions")
         return jsonify(asdict(error_response)), 404
 
-    language_stats = get_language_stats(username, token, excluded_list)
+    language_stats_data = get_language_stats(username, token, excluded_list)
+
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
 
-    response = GitHubStatsResponse(
-        status="success",
-        message="retrieved",
-        topLanguages=language_stats,
-        totalCommits=total_commits,
-        longestStreak=longest_streak,
-        contributions=contribution_data
-    )
-    return jsonify(asdict(response))
+    response_payload = {
+        "topLanguages": language_stats_data,
+        "totalCommits": total_commits,
+        "longestStreak": longest_streak
+    }
+    return jsonify(response_payload)
 
 @api_bp.route('/<username>/repos')
 def get_user_repo_details(username: str):
@@ -122,15 +103,7 @@ def get_user_repo_details(username: str):
         return jsonify(asdict(error_response)), 500
 
     response_data = [asdict(repo) for repo in repos]
-    response_obj = GitHubStatsResponse(
-        status="success",
-        message="retrieved repository details",
-        topLanguages=[],
-        totalCommits=0,
-        longestStreak=0,
-        repos=response_data 
-    )
-    return jsonify(asdict(response_obj))
+    return jsonify(response_data)
 
 @api_bp.route('/<username>/commits')
 def get_user_commit_details(username: str):
@@ -146,12 +119,4 @@ def get_user_commit_details(username: str):
         return jsonify(asdict(error_response)), 500
 
     response_data = [asdict(commit) for commit in commits]
-    response_obj = GitHubStatsResponse(
-        status="success",
-        message="retrieved commit history",
-        topLanguages=[],
-        totalCommits=0, 
-        longestStreak=0,
-        commits=response_data
-    )
-    return jsonify(asdict(response_obj))
+    return jsonify(response_data)
