@@ -1,6 +1,6 @@
-from flask import Blueprint, render_template_string
-
-docs_bp = Blueprint('docs', __name__)
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
+docs_router = APIRouter()
 
 docs_html_content = """
         <!DOCTYPE html>
@@ -712,6 +712,6 @@ docs_html_content = """
         </html>
     """
 
-@docs_bp.route('/')
-def docs():
-    return render_template_string(docs_html_content)
+@docs_router.get("/", response_class=HTMLResponse)
+async def docs():
+    return docs_html_content
