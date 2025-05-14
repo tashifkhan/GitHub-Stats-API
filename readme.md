@@ -2,7 +2,7 @@
 
 A robust RESTful API built with FastAPI that retrieves and analyzes GitHub user data, including programming language statistics and contribution history.
 
-hosted at ![github-stats.tashif.codes](htpps://github-stats.tashif.codes)
+hosted at ![github-stats.tashif.codes](https://github-stats.tashif.codes)
 
 ## Features
 
@@ -10,10 +10,9 @@ hosted at ![github-stats.tashif.codes](htpps://github-stats.tashif.codes)
 - Retrieve detailed contribution history and metrics
 - View total commits and longest streak information
 - Get comprehensive user statistics in a single request
-- Interactive API documentation
+- Interactive API documentation (Swagger UI & ReDoc)
+- Custom HTML documentation page
 - Easy integration with other applications
-
-## API Endpoints
 
 ### Get Complete Statistics
 
@@ -98,10 +97,10 @@ Returns contribution calendar data, total commit count, and longest contribution
 					}
 				}
 			}
-		}
-	},
-	"totalCommits": 1234,
-	"longestStreak": 30
+		},
+		"totalCommits": 1234,
+		"longestStreak": 30
+	}
 }
 ```
 
@@ -168,7 +167,9 @@ Returns a list of commit details.
 
 ## API Documentation
 
-API documentation is available when the server is running `/`
+- Custom HTML documentation is available at the root endpoint: `/`
+- Interactive Swagger UI documentation is available at: `/docs`
+- Alternative ReDoc documentation is available at: `/redoc`
 
 ## Error Handling
 
@@ -200,7 +201,9 @@ Error responses follow this format:
 import requests
 
 username = "octocat"
-response = requests.get(f"http://localhost:8000/{username}/stats")
+# Update base URL if running locally, e.g., http://localhost:8000
+base_url = "https://github-stats.tashif.codes" # Or your deployed URL
+response = requests.get(f"{base_url}/{username}/stats")
 data = response.json()
 
 print(f"{username} has made {data['totalCommits']} commits with a longest streak of {data['longestStreak']} days!")
@@ -209,7 +212,10 @@ print(f"{username} has made {data['totalCommits']} commits with a longest streak
 ### JavaScript
 
 ```javascript
-fetch(`http://localhost:8000/${username}/stats`)
+const username = "octocat";
+// Update base URL if running locally, e.g., http://localhost:8000
+const baseUrl = "https://github-stats.tashif.codes"; // Or your deployed URL
+fetch(`${baseUrl}/${username}/stats`)
 	.then((response) => response.json())
 	.then((data) => console.log(data));
 ```
@@ -240,16 +246,24 @@ fetch(`http://localhost:8000/${username}/stats`)
 
 4. Configure a .env file with your GitHub token
 
-   ```
+   ```env
    GITHUB_TOKEN=your_personal_access_token
+   PORT=8000 # Optional: Uvicorn default is 8000
    ```
 
-5. Start the Flask application
+5. Start the FastAPI application using Uvicorn
+   ```bash
+   uvicorn app:app --reload --port 8000
+   ```
+   Or simply run the `app.py` script if you prefer the `if __name__ == "__main__":` block:
    ```bash
    python app.py
    ```
 
-The API will be available at `http://localhost:8909`.
+The API will be available at `http://localhost:8000`.
+The custom documentation page will be at `http://localhost:8000/`.
+Swagger UI docs at `http://localhost:8000/docs`.
+ReDoc docs at `http://localhost:8000/redoc`.
 
 ## Contributing
 

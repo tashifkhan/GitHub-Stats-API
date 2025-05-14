@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request, current_app
+from fastapi import APIRouter, HTTPException, Query, Path, Depends
+from typing import List, Dict, Optional
 from dataclasses import asdict
 import os
 
@@ -12,111 +13,92 @@ from services.github_service import (
     get_user_commit_history,
 )
 
-api_bp = Blueprint('api', __name__)
+api_router = APIRouter()
 
-@api_bp.route('/<username>/languages')
-def get_user_language_stats(username: str):
-    token = current_app.config.get('GITHUB_TOKEN') or os.getenv("GITHUB_TOKEN")
+# Dependency to get GitHub Token
+async def get_github_token() -> str:
+    token = os.getenv("GITHUB_TOKEN")
     if not token:
-        error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
-        return jsonify(asdict(error_response)), 500
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+    return token
 
-    excluded = request.args.getlist('excluded') or ["Markdown", "JSON", "YAML", "XML"]
-    
+@api_router.get("/{username}/languages", response_model=List[Dict[str, float]], tags=["User Analytics"])
+async def get_user_language_stats_route(
+    username: str = Path(..., description="GitHub username"),
+    excluded: List[str] = Query(default=["Markdown", "JSON", "YAML", "XML"], description="Languages to exclude from the statistics"),
+    token: str = Depends(get_github_token)
+):
     language_stats_data = get_language_stats(username, token, excluded)
     
     if language_stats_data is None:
-        pass
+        raise HTTPException(status_code=404, detail="Could not retrieve language statistics or user not found")
 
-    return jsonify(language_stats_data)
+    return language_stats_data
 
-@api_bp.route('/<username>/contributions')
-def get_user_contributions(username: str):
-    token = current_app.config.get('GITHUB_TOKEN') or os.getenv("GITHUB_TOKEN")
-    if not token:
-        error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
-        return jsonify(asdict(error_response)), 500
-
-    starting_year_str = request.args.get('starting_year')
-    starting_year = None
-    if starting_year_str:
-        try:
-            starting_year = int(starting_year_str)
-        except ValueError:
-            error_response = GitHubStatsResponse.error("error", "Invalid starting_year format. Must be an integer.")
-            return jsonify(asdict(error_response)), 400
+@api_router.get("/{username}/contributions", tags=["User Analytics"])
+async def get_user_contributions_route(
+    username: str = Path(..., description="GitHub username"),
+    starting_year: Optional[int] = Query(None, description="Starting year for contribution history (defaults to account creation year)"),
+    token: str = Depends(get_github_token)
+):
+    if starting_year is not None and not (isinstance(starting_year, int) and starting_year > 1900 and starting_year < 2200):
+        raise HTTPException(status_code=400, detail="Invalid starting_year format. Must be a valid year.")
             
     contribution_data = get_contribution_graphs(username, token, starting_year)
     
-    if not contribution_data:
-        error_response = GitHubStatsResponse.error("error", "User not found or API error")
-        return jsonify(asdict(error_response)), 404
+    if not contribution_data or not contribution_data.get(list(contribution_data.keys())[0] if contribution_data else None, {}).get('data', {}).get('user'):
+        raise HTTPException(status_code=404, detail="User not found or API error fetching contributions")
     
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
 
-    response_payload = {
+    return {
         "contributions": contribution_data,
         "totalCommits": total_commits,
         "longestStreak": longest_streak
     }
-    return jsonify(response_payload)
 
-@api_bp.route('/<username>/stats')
-def get_user_stats(username: str):
-    token = current_app.config.get('GITHUB_TOKEN') or os.getenv("GITHUB_TOKEN")
-    if not token:
-        error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
-        return jsonify(asdict(error_response)), 500
-
-    exclude_param = request.args.get('exclude')
-    excluded_list = [lang.strip() for lang in exclude_param.split(',')] if exclude_param else []
+@api_router.get("/{username}/stats", tags=["User Analytics"])
+async def get_user_stats_route(
+    username: str = Path(..., description="GitHub username"),
+    exclude: Optional[str] = Query(None, description="Comma-separated list of languages to exclude"),
+    token: str = Depends(get_github_token)
+):
+    excluded_list = [lang.strip() for lang in exclude.split(',')] if exclude else ["Markdown", "JSON", "YAML", "XML"]
 
     contribution_data = get_contribution_graphs(username, token)
-    if not contribution_data:
-        error_response = GitHubStatsResponse.error("error", "User not found or API error fetching contributions")
-        return jsonify(asdict(error_response)), 404
+    if not contribution_data or not contribution_data.get(list(contribution_data.keys())[0] if contribution_data else None, {}).get('data', {}).get('user'):
+        raise HTTPException(status_code=404, detail="User not found or API error fetching contributions")
 
     language_stats_data = get_language_stats(username, token, excluded_list)
 
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
 
-    response_payload = {
+    return {
         "topLanguages": language_stats_data,
         "totalCommits": total_commits,
         "longestStreak": longest_streak
     }
-    return jsonify(response_payload)
 
-@api_bp.route('/<username>/repos')
-def get_user_repo_details(username: str):
-    token = current_app.config.get('GITHUB_TOKEN') or os.getenv("GITHUB_TOKEN")
-    if not token:
-        error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
-        return jsonify(asdict(error_response)), 500
-
+@api_router.get("/{username}/repos", response_model=List[RepoDetail], tags=["Dashboard Details"])
+async def get_user_repo_details_route(
+    username: str = Path(..., description="GitHub username"),
+    token: str = Depends(get_github_token)
+):
     repos = get_user_repos(username, token)
     
     if repos is None:
-        error_response = GitHubStatsResponse.error("error", "Failed to retrieve repository details")
-        return jsonify(asdict(error_response)), 500
+        raise HTTPException(status_code=500, detail="Failed to retrieve repository details")
+    return repos
 
-    response_data = [asdict(repo) for repo in repos]
-    return jsonify(response_data)
-
-@api_bp.route('/<username>/commits')
-def get_user_commit_details(username: str):
-    token = current_app.config.get('GITHUB_TOKEN') or os.getenv("GITHUB_TOKEN")
-    if not token:
-        error_response = GitHubStatsResponse.error("error", "GitHub token not configured")
-        return jsonify(asdict(error_response)), 500
-
+@api_router.get("/{username}/commits", response_model=List[CommitDetail], tags=["Dashboard Details"])
+async def get_user_commit_details_route(
+    username: str = Path(..., description="GitHub username"),
+    token: str = Depends(get_github_token)
+):
     commits = get_user_commit_history(username, token)
 
     if commits is None:
-        error_response = GitHubStatsResponse.error("error", "Failed to retrieve commit history")
-        return jsonify(asdict(error_response)), 500
-
-    response_data = [asdict(commit) for commit in commits]
-    return jsonify(response_data)
+        raise HTTPException(status_code=500, detail="Failed to retrieve commit history")
+    return commits

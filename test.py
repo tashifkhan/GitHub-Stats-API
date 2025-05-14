@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import List, Dict, Optional
 from datetime import datetime
 import httpx
@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import asyncio
 import re
 import base64
+from routes.docs import docs_html_content
 
 load_dotenv()
 
@@ -23,27 +24,30 @@ app = FastAPI(
     * Overall GitHub activity metrics
     
     Use this API to get detailed insights into GitHub user activity patterns.
+    Custom API documentation page available at `/`.
+    Interactive Swagger UI available at `/docs`.
+    Alternative ReDoc documentation available at `/redoc`.
     """,
     version="1.0.0",
     contact={
         "name": "API Support",
-        "url": "https://github.com/yourusername/github-analytics-api",
+        "url": "https://github.com/tashifkhan/GitHub-Stats-API", 
     },
 )
 
-@app.get("/",
-    tags=["General"],
-    summary="API Documentation",
-    description="Redirects to the API documentation page")
-async def root():
-    return RedirectResponse(url="/docs")
+# @app.get("/",
+#     tags=["General"],
+#     summary="API Documentation",
+#     description="Redirects to the API documentation page")
+# async def root():
+#     return RedirectResponse(url="/docs")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 GITHUB_API = "https://api.github.com"
 
@@ -562,6 +566,13 @@ async def get_user_commit_history_async(username: str = Path(..., description="G
 
     all_commits.sort(key=lambda x: x.timestamp or "", reverse=True)
     return all_commits
+
+@app.get("/", response_class=HTMLResponse, tags=["Documentation"])
+async def get_custom_documentation():
+    """
+    Serves the custom HTML API documentation page.
+    """
+    return HTMLResponse(content=docs_html_content)
 
 if __name__ == "__main__":
     import uvicorn

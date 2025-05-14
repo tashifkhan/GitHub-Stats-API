@@ -2,9 +2,7 @@ from flask import Blueprint, render_template_string
 
 docs_bp = Blueprint('docs', __name__)
 
-@docs_bp.route('/')
-def docs():
-    html = """
+docs_html_content = """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -339,6 +337,10 @@ def docs():
             <h1>GitHub Stats API Documentation</h1>
             
             <p>This API provides access to GitHub user statistics and contribution data. Click on each endpoint to see details.</p>
+            <p>
+                Interactive API documentation (Swagger UI) is available at <a href="/docs" style="color: var(--secondary-color);">/docs</a>.
+                Alternative API documentation (ReDoc) is available at <a href="/redoc" style="color: var(--secondary-color);">/redoc</a>.
+            </p>
 
             <!-- General Section -->
             <div class="api-section">
@@ -349,11 +351,17 @@ def docs():
                 <div class="section-content">
                     <div class="endpoint">
                         <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/</code> API Documentation</h2>
+                            <h2><span class="endpoint-method">GET</span><code class="path">/</code> Custom API Documentation</h2>
                             <span class="endpoint-toggle">+</span>
                         </div>
                         <div class="endpoint-content">
-                            <p>Provides the documentation for the API (this page).</p>
+                            <p>Provides this custom HTML documentation page for the API.</p>
+                            <p>For interactive API exploration and testing, you can use:
+                                <ul>
+                                    <li>Swagger UI: <a href="/docs" style="color: var(--secondary-color);">/docs</a></li>
+                                    <li>ReDoc: <a href="/redoc" style="color: var(--secondary-color);">/redoc</a></li>
+                                </ul>
+                            </p>
                             <div class="note">
                                 <h3>Example Request</h3>
                                 <pre><code>GET /</code></pre>
@@ -363,6 +371,52 @@ def docs():
                                 <pre><code class="language-html">&lt;!DOCTYPE html&gt;
 &lt;html&gt;
     &lt;head&gt;...&lt;/head&gt;
+    &lt;body&gt;... API Documentation ...&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/docs</code> Swagger UI API Documentation</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Provides interactive API documentation using Swagger UI. This interface allows you to explore endpoints, view models, and test API calls directly in your browser.</p>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /docs</code></pre>
+                            </div>
+                            <div class="response">
+                                <h3>Response</h3>
+                                <p>Returns the Swagger UI interface.</p>
+                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+    &lt;head&gt;... Swagger UI ...&lt;/head&gt;
+    &lt;body&gt;... Interactive Documentation ...&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/redoc</code> ReDoc API Documentation</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Provides alternative API documentation using ReDoc. This interface offers a clean, three-panel view of your API specification, ideal for reading and understanding the API structure.</p>
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /redoc</code></pre>
+                            </div>
+                            <div class="response">
+                                <h3>Response</h3>
+                                <p>Returns the ReDoc UI interface.</p>
+                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+    &lt;head&gt;... ReDoc ...&lt;/head&gt;
     &lt;body&gt;... API Documentation ...&lt;/body&gt;
 &lt;/html&gt;</code></pre>
                             </div>
@@ -657,4 +711,7 @@ def docs():
         </body>
         </html>
     """
-    return render_template_string(html)
+
+@docs_bp.route('/')
+def docs():
+    return render_template_string(docs_html_content)

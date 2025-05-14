@@ -2,24 +2,19 @@ annotated-types==0.7.0
 anyio==3.7.1
 certifi==2024.12.14
 charset-normalizer==3.4.1
-click==8.1.8
+click==8.1.8 # Uvicorn dependency
 fastapi==0.104.1
 h11==0.14.0
-h2==4.2.0
-hpack==4.1.0
-httpcore==1.0.7
+httpcore==1.0.7 # httpx dependency
 httpx==0.25.1
-Hypercorn==0.17.3
-hyperframe==6.1.0
 idna==3.10
 pydantic==2.10.6
 pydantic_core==2.27.2
-priority==2.0.0
 python-dotenv==1.0.1
+python-multipart==0.0.9 # Added for FastAPI form data
 requests==2.32.3
 sniffio==1.3.1
-starlette==0.27.0
+starlette==0.27.0 # FastAPI dependency
 typing_extensions==4.12.2
 urllib3==2.3.0
 uvicorn==0.24.0
-wsproto==1.2.0
