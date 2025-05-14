@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from typing import List, Dict, Optional
@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
 import asyncio
+import re
+import base64
 
 load_dotenv()
 
@@ -43,6 +45,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+GITHUB_API = "https://api.github.com"
+
 # Models
 class LanguageData(BaseModel):
     name: str
@@ -69,6 +73,21 @@ class GithubUser(BaseModel):
 class GraphQLResponse(BaseModel):
     data: Optional[Dict]
     errors: Optional[List[Dict[str, str]]]
+
+class RepoDetail(BaseModel):
+    title: str
+    description: Optional[str]
+    live_website_url: Optional[str]
+    languages: List[str]
+    num_commits: int
+    readme: Optional[str]
+
+class CommitDetail(BaseModel):
+    repo: str
+    message: Optional[str]
+    timestamp: Optional[str]
+    sha: Optional[str]
+    url: Optional[str]
 
 # Helper functions
 async def execute_graphql_query(query: str, token: str) -> Dict:
@@ -107,7 +126,6 @@ def build_contribution_graph_query(user: str, year: int) -> str:
 
 async def get_language_stats(username: str, token: str, excluded_languages: List[str]) -> List[LanguageData]:
     async with httpx.AsyncClient() as client:
-        # Fetch repositories
         repos_response = await client.get(
             f"https://api.github.com/users/{username}/repos",
             headers={'Authorization': f'Bearer {token}'}
@@ -118,7 +136,6 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
         
         repos = repos_response.json()
         
-        # Fetch language data for each repository
         language_totals: Dict[str, int] = {}
         for repo in repos:
             lang_response = await client.get(
@@ -131,7 +148,6 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
                     if lang not in excluded_languages:
                         language_totals[lang] = language_totals.get(lang, 0) + bytes
 
-        # Calculate percentages
         total_bytes = sum(language_totals.values())
         if total_bytes == 0:
             return []
@@ -139,16 +155,7 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
         language_stats = [
             LanguageData(
                 name=name,
-                percentage=round((bytes / total_bytes) * 100)
-            )
-            for name, bytes in language_totals.items()
-        ]
-
-        # Sort by percentage and get top 5
-        language_stats = [
-            LanguageData(
-            name=name,
-            percentage=round((bytes / total_bytes) * 100, 2)
+                percentage=round((bytes / total_bytes) * 100, 2)
             )
             for name, bytes in language_totals.items()
         ]
@@ -157,7 +164,6 @@ async def get_language_stats(username: str, token: str, excluded_languages: List
 async def get_contribution_graphs(username: str, token: str, starting_year: Optional[int] = None) -> Dict:
     current_year = datetime.now().year
     
-    # Get current year's contributions first
     query = build_contribution_graph_query(username, current_year)
     initial_response = await execute_graphql_query(query, token)
     
@@ -205,6 +211,127 @@ def calculate_longest_streak(contribution_data: Dict) -> int:
             current_streak = 0
             
     return longest_streak
+
+def _github_headers(token: str) -> Dict[str, str]:
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+def _extract_url_from_description(description: Optional[str]) -> Optional[str]:
+    if not description:
+        return None
+    match = re.search(r'(https?://[^\s]+)', description)
+    return match.group(1) if match else None
+
+async def _get_commit_count(client: httpx.AsyncClient, owner: str, repo_name: str, token: str) -> int:
+    commits_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/commits?per_page=1"
+    try:
+        response = await client.get(commits_url, headers=_github_headers(token))
+        if response.status_code == 200:
+            link_header = response.headers.get('Link')
+            if link_header:
+                match = re.search(r'<.*?page=(\d+)>; rel="last"', link_header)
+                if match:
+                    return int(match.group(1))
+            page_commits = response.json()
+            if page_commits:
+                return len(page_commits) if isinstance(page_commits, list) else 0
+            return 0
+        elif response.status_code in [404, 403]:
+            return 0
+        response.raise_for_status()
+        return 0
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            return 0
+        return 0
+    except Exception:
+        return 0
+
+async def _fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str) -> Optional[RepoDetail]:
+    repo_name = repo["name"]
+    owner = repo["owner"]["login"]
+
+    readme_content_b64 = None
+    languages_list = []
+    
+    async def get_readme():
+        nonlocal readme_content_b64
+        readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
+        try:
+            readme_resp = await client.get(readme_url, headers=_github_headers(token))
+            if readme_resp.status_code == 200:
+                readme_content_b64 = readme_resp.json().get("content")
+        except Exception:
+            pass
+
+    async def get_languages():
+        nonlocal languages_list
+        languages_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/languages"
+        try:
+            languages_resp = await client.get(languages_url, headers=_github_headers(token))
+            if languages_resp.status_code == 200:
+                languages_list = list(languages_resp.json().keys())
+        except Exception:
+            pass
+
+    num_commits = await _get_commit_count(client, owner, repo_name, token)
+    
+    await asyncio.gather(get_readme(), get_languages())
+
+    description = repo.get("description")
+    homepage_url = repo.get("homepage")
+    live_url = None
+
+    if homepage_url and isinstance(homepage_url, str) and homepage_url.startswith(('http://', 'https://')):
+        live_url = homepage_url
+    else:
+        live_url = _extract_url_from_description(description)
+
+    return RepoDetail(
+        title=repo_name,
+        description=description,
+        live_website_url=live_url,
+        languages=languages_list,
+        num_commits=num_commits,
+        readme=readme_content_b64,
+    )
+
+async def _get_all_commits_for_repo_async(client: httpx.AsyncClient, owner: str, repo_name: str, username: str, token: str) -> List[CommitDetail]:
+    commits_data: List[CommitDetail] = []
+    page = 1
+    per_page = 100
+    while True:
+        commits_url = (
+            f"{GITHUB_API}/repos/{owner}/{repo_name}/commits"
+            f"?author={username}&per_page={per_page}&page={page}"
+        )
+        try:
+            resp = await client.get(commits_url, headers=_github_headers(token))
+            if resp.status_code != 200:
+                break 
+            page_commits = resp.json()
+            if not page_commits:
+                break
+            
+            for commit_item in page_commits:
+                commit_details = commit_item.get("commit", {})
+                author_details = commit_details.get("author", {})
+                commits_data.append(CommitDetail(
+                    repo=repo_name,
+                    message=commit_details.get("message"),
+                    timestamp=author_details.get("date"),
+                    sha=commit_item.get("sha"),
+                    url=commit_item.get("html_url"),
+                ))
+            
+            if len(page_commits) < per_page:
+                break
+            page += 1
+        except Exception:
+            break
+    return commits_data
 
 # API Endpoints
 @app.get("/{username}/languages",
@@ -338,10 +465,8 @@ async def get_user_stats(
     if not token:
         raise HTTPException(status_code=500, detail="GitHub token not configured")
 
-    # Parse excluded languages from query parameter
     excluded_list = exclude.split(",") if exclude else []
 
-    # Fetch contributions and languages concurrently
     contribution_data, language_stats = await asyncio.gather(
         get_contribution_graphs(username, token),
         get_language_stats(username, token, excluded_list)
@@ -355,6 +480,88 @@ async def get_user_stats(
         "totalCommits": total_commits,
         "longestStreak": longest_streak
     }
+
+@app.get("/{username}/repos",
+    response_model=List[RepoDetail],
+    tags=["Dashboard Details"],
+    summary="Get User's Repository Details",
+    description="Retrieves detailed information for each of the user's public repositories, including README, languages, and commit count.",
+    responses={
+        200: {"description": "Successfully retrieved repository details"},
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error or API error"}
+    })
+async def get_user_repos_async(username: str = Path(..., description="GitHub username")):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&type=owner&sort=pushed"
+        try:
+            repos_resp = await client.get(repos_url, headers=_github_headers(token))
+            if repos_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+            repos_resp.raise_for_status()
+            repos = repos_resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API error: {e.response.text}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"GitHub API request error: {str(e)}")
+
+        if not isinstance(repos, list):
+             raise HTTPException(status_code=500, detail="Unexpected response format from GitHub API for repositories.")
+
+        tasks = [_fetch_repo_details(client, repo, token) for repo in repos if isinstance(repo, dict)]
+        results = await asyncio.gather(*tasks)
+        
+        return [res for res in results if res is not None]
+
+@app.get("/{username}/commits",
+    response_model=List[CommitDetail],
+    tags=["Dashboard Details"],
+    summary="Get User's Commit History Across All Repositories",
+    description="Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp.",
+    responses={
+        200: {"description": "Successfully retrieved commit history"},
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error or API error"}
+    })
+async def get_user_commit_history_async(username: str = Path(..., description="GitHub username")):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    all_commits: List[CommitDetail] = []
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&type=owner"
+        try:
+            repos_resp = await client.get(repos_url, headers=_github_headers(token))
+            if repos_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+            repos_resp.raise_for_status()
+            repos = repos_resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API error: {e.response.text}")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"GitHub API request error: {str(e)}")
+
+        if not isinstance(repos, list):
+            raise HTTPException(status_code=500, detail="Unexpected response format from GitHub API for repositories.")
+
+        tasks = []
+        for repo in repos:
+            if isinstance(repo, dict) and "name" in repo and isinstance(repo.get("owner"), dict) and "login" in repo["owner"]:
+                repo_name = repo["name"]
+                owner = repo["owner"]["login"]
+                tasks.append(_get_all_commits_for_repo_async(client, owner, repo_name, username, token))
+        
+        repo_commits_list = await asyncio.gather(*tasks)
+        for repo_commits in repo_commits_list:
+            all_commits.extend(repo_commits)
+
+    all_commits.sort(key=lambda x: x.timestamp or "", reverse=True)
+    return all_commits
 
 if __name__ == "__main__":
     import uvicorn
