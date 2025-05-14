@@ -1,16 +1,15 @@
-from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+from pydantic import BaseModel
 
-@dataclass
-class GitHubStatsResponse:
+class GitHubStatsResponse(BaseModel):
     status: str
     message: str
     topLanguages: List[Dict[str, float]]
     totalCommits: int
     longestStreak: int
     contributions: Optional[Dict] = None
-    repos: Optional[List['RepoDetail']] = field(default_factory=list)
-    commits: Optional[List['CommitDetail']] = field(default_factory=list)
+    repos: Optional[List['RepoDetail']] = []
+    commits: Optional[List['CommitDetail']] = []
 
     @classmethod
     def error(cls, status: str, message: str):
@@ -24,45 +23,42 @@ class GitHubStatsResponse:
             commits=[]
         )
 
-@dataclass
-class LanguageData:
+
+class LanguageData(BaseModel):
     name: str
     percentage: float
 
-@dataclass
-class ContributionDay:
+class ContributionDay(BaseModel):
     contributionCount: int
     date: str
 
-@dataclass
-class Week:
+class Week(BaseModel):
     contributionDays: List[ContributionDay]
 
-@dataclass
-class ContributionCalendar:
+class ContributionCalendar(BaseModel):
     weeks: List[Week]
 
-@dataclass
-class ContributionsCollection:
+class ContributionsCollection(BaseModel):
     contributionYears: List[int]
     contributionCalendar: Optional[ContributionCalendar]
 
-@dataclass
-class GithubUser:
+class GithubUser(BaseModel):
     createdAt: str
     contributionsCollection: Optional[ContributionsCollection]
 
-@dataclass
-class RepoDetail:
+class GraphQLResponse(BaseModel):
+    data: Optional[Dict]
+    errors: Optional[List[Dict[str, str]]]
+
+class RepoDetail(BaseModel):
     title: str
     description: Optional[str]
     live_website_url: Optional[str]
     languages: List[str]
     num_commits: int
-    readme: Optional[str] # Base64 encoded
+    readme: Optional[str]
 
-@dataclass
-class CommitDetail:
+class CommitDetail(BaseModel):
     repo: str
     message: Optional[str]
     timestamp: Optional[str]
