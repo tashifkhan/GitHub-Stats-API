@@ -2,11 +2,13 @@ from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import List, Dict, Optional
+from modules.github import *
 from datetime import datetime
 import httpx
 import asyncio
 import re
 
+GITHUB_API = "https://api.github.com"
 
 async def execute_graphql_query(query: str, token: str) -> Dict:
     async with httpx.AsyncClient() as client:
