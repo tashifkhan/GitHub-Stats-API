@@ -132,7 +132,7 @@ def calculate_longest_streak(contribution_data: Dict) -> int:
             
     return longest_streak
 
-def _github_headers(token: str) -> Dict[str, str]:
+def github_headers(token: str) -> Dict[str, str]:
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -147,7 +147,7 @@ def _extract_url_from_description(description: Optional[str]) -> Optional[str]:
 async def _get_commit_count(client: httpx.AsyncClient, owner: str, repo_name: str, token: str) -> int:
     commits_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/commits?per_page=1"
     try:
-        response = await client.get(commits_url, headers=_github_headers(token))
+        response = await client.get(commits_url, headers=github_headers(token))
         if response.status_code == 200:
             link_header = response.headers.get('Link')
             if link_header:
@@ -169,7 +169,7 @@ async def _get_commit_count(client: httpx.AsyncClient, owner: str, repo_name: st
     except Exception:
         return 0
 
-async def _fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str) -> Optional[RepoDetail]:
+async def fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str) -> Optional[RepoDetail]:
     repo_name = repo["name"]
     owner = repo["owner"]["login"]
 
@@ -180,7 +180,7 @@ async def _fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str)
         nonlocal readme_content_b64
         readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
         try:
-            readme_resp = await client.get(readme_url, headers=_github_headers(token))
+            readme_resp = await client.get(readme_url, headers=github_headers(token))
             if readme_resp.status_code == 200:
                 readme_content_b64 = readme_resp.json().get("content")
         except Exception:
@@ -190,7 +190,7 @@ async def _fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str)
         nonlocal languages_list
         languages_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/languages"
         try:
-            languages_resp = await client.get(languages_url, headers=_github_headers(token))
+            languages_resp = await client.get(languages_url, headers=github_headers(token))
             if languages_resp.status_code == 200:
                 languages_list = list(languages_resp.json().keys())
         except Exception:
@@ -218,7 +218,7 @@ async def _fetch_repo_details(client: httpx.AsyncClient, repo: Dict, token: str)
         readme=readme_content_b64,
     )
 
-async def _get_all_commits_for_repo_async(client: httpx.AsyncClient, owner: str, repo_name: str, username: str, token: str) -> List[CommitDetail]:
+async def get_all_commits_for_repo_async(client: httpx.AsyncClient, owner: str, repo_name: str, username: str, token: str) -> List[CommitDetail]:
     commits_data: List[CommitDetail] = []
     page = 1
     per_page = 100
@@ -228,7 +228,7 @@ async def _get_all_commits_for_repo_async(client: httpx.AsyncClient, owner: str,
             f"?author={username}&per_page={per_page}&page={page}"
         )
         try:
-            resp = await client.get(commits_url, headers=_github_headers(token))
+            resp = await client.get(commits_url, headers=github_headers(token))
             if resp.status_code != 200:
                 break 
             page_commits = resp.json()
