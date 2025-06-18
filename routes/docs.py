@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
+
 docs_router = APIRouter()
 
 docs_html_content = """
@@ -504,7 +505,8 @@ docs_html_content = """
         }
     },
     "totalCommits": 1234,
-    "longestStreak": 30
+    "longestStreak": 30,
+    "currentStreak": 15
 }</code></pre>
                             </div>
 
@@ -540,7 +542,8 @@ docs_html_content = """
         {"name": "Python", "percentage": 45}
     ],
     "totalCommits": 1234,
-    "longestStreak": 30
+    "longestStreak": 30,
+    "currentStreak": 15
 }</code></pre>
                             </div>
 
@@ -646,7 +649,8 @@ docs_html_content = """
     "message": "User not found or API error",
     "topLanguages": [],
     "totalCommits": 0,
-    "longestStreak": 0
+    "longestStreak": 0,
+    "currentStreak": 0
 }</code></pre>
                     </div>
                 </div>
@@ -662,7 +666,8 @@ docs_html_content = """
     "message": "GitHub token not configured",
     "topLanguages": [],
     "totalCommits": 0,
-    "longestStreak": 0
+    "longestStreak": 0,
+    "currentStreak": 0
 }</code></pre>
                     </div>
                 </div>
@@ -711,6 +716,7 @@ docs_html_content = """
         </body>
         </html>
     """
+
 
 @docs_router.get("/", response_class=HTMLResponse, tags=["Documentation"])
 async def get_custom_documentation():
