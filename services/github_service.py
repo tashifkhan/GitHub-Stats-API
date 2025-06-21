@@ -299,6 +299,7 @@ async def fetch_repo_details(
             pass
 
     num_commits = await _get_commit_count(client, owner, repo_name, token)
+    stars_count = repo.get("stargazers_count", 0)
 
     await asyncio.gather(get_readme(), get_languages())
 
@@ -321,8 +322,67 @@ async def fetch_repo_details(
         live_website_url=live_url,
         languages=languages_list,
         num_commits=num_commits,
+        stars=stars_count,
         readme=readme_content_b64,
     )
+
+
+async def get_user_stars_data(username: str, token: str) -> StarsData:
+    """
+    Get total stars and starred repositories for a user.
+
+    Args:
+        username: GitHub username
+        token: GitHub API token
+
+    Returns:
+        StarsData with total stars and repository details
+    """
+    async with httpx.AsyncClient() as client:
+        # Get user's repositories
+        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
+        try:
+            response = await client.get(repos_url, headers=github_headers(token))
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=404, detail="User not found or API error"
+                )
+
+            repos = response.json()
+            if not repos:
+                return StarsData(total_stars=0, repositories=[])
+
+            total_stars = sum(repo.get("stargazers_count", 0) for repo in repos)
+
+            # Get detailed repository information with stars
+            repo_details = []
+            for repo in repos:
+                stars_count = repo.get("stargazers_count", 0)
+                if stars_count > 0:  # Only include repositories with stars
+                    repo_detail = {
+                        "name": repo["name"],
+                        "description": repo.get("description"),
+                        "stars": stars_count,
+                        "url": repo.get("html_url"),
+                        "language": repo.get("language"),
+                        "created_at": repo.get("created_at"),
+                        "updated_at": repo.get("updated_at"),
+                    }
+                    repo_details.append(repo_detail)
+
+            # Sort by stars (highest first)
+            repo_details.sort(key=lambda x: x["stars"], reverse=True)
+
+            return StarsData(total_stars=total_stars, repositories=repo_details)
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=500, detail="GitHub API error")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching stars data: {str(e)}"
+            )
 
 
 async def get_all_commits_for_repo_async(

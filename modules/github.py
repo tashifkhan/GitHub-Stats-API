@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel
 
 
@@ -64,6 +64,7 @@ class RepoDetail(BaseModel):
     live_website_url: Optional[str]
     languages: List[str]
     num_commits: int
+    stars: int = 0
     readme: Optional[str]
 
 
@@ -73,3 +74,8 @@ class CommitDetail(BaseModel):
     timestamp: Optional[str]
     sha: Optional[str]
     url: Optional[str]
+
+
+class StarsData(BaseModel):
+    total_stars: int
+    repositories: List[Dict[str, Any]]

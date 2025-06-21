@@ -2,7 +2,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query, Path
 from fastapi.responses import JSONResponse, Response
 from typing import Dict, List, Optional, Any
-from modules.github import LanguageData, RepoDetail
+from modules.github import LanguageData, RepoDetail, StarsData
 import os
 from services.github_service import *
 from services.profile_views_service import increment_profile_views, get_profile_views
@@ -113,6 +113,61 @@ async def get_user_contributions(
 
 
 @analytics_router.get(
+    "/{username}/stars",
+    tags=["User Analytics"],
+    summary="Get User's Stars Information",
+    description="""
+    Retrieves stars information for a user's repositories including:
+    
+    - Total stars across all repositories
+    - List of repositories with stars (sorted by star count)
+    - Repository details including description, language, and URLs
+    
+    This endpoint provides comprehensive stars analytics for portfolio displays.
+    """,
+    response_description="Stars information with total count and repository details",
+    responses={
+        200: {
+            "description": "Successfully retrieved stars information",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "total_stars": 150,
+                        "repositories": [
+                            {
+                                "name": "RepoName",
+                                "description": "A popular project",
+                                "stars": 100,
+                                "url": "https://github.com/user/repo",
+                                "language": "Python",
+                                "created_at": "2023-01-01T00:00:00Z",
+                                "updated_at": "2023-12-01T00:00:00Z",
+                            }
+                        ],
+                    }
+                }
+            },
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"},
+    },
+)
+async def get_user_stars(
+    username: str = Path(..., description="GitHub username"),
+) -> StarsData:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    try:
+        return await get_user_stars_data(username, token)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="User not found or API error")
+        raise e
+
+
+@analytics_router.get(
     "/{username}/repos",
     tags=["User Analytics"],
     summary="Get User's Repository Details",
@@ -123,6 +178,7 @@ async def get_user_contributions(
     - Live website URL (if available in description)
     - Programming languages used
     - Number of commits
+    - Number of stars
     - README content (Base64 encoded)
     
     This endpoint provides comprehensive repository information for portfolio displays.
@@ -140,6 +196,7 @@ async def get_user_contributions(
                             "live_website_url": "https://example.com",
                             "languages": ["Python", "JavaScript"],
                             "num_commits": 42,
+                            "stars": 25,
                             "readme": "BASE64_ENCODED_README_CONTENT",
                         }
                     ]

@@ -118,7 +118,7 @@ Returns contribution calendar data, total commit count, and longest contribution
 GET /{username}/repos
 ```
 
-Retrieves detailed information for each of the user's public repositories, including README content, languages, and commit count.
+Retrieves detailed information for each of the user's public repositories, including README content, languages, commit count, and stars count.
 
 #### Parameters
 
@@ -138,9 +138,45 @@ Returns a list of repository details with comprehensive information.
 		"live_website_url": "https://example.com",
 		"languages": ["Python", "JavaScript"],
 		"num_commits": 42,
+		"stars": 25,
 		"readme": "BASE64_ENCODED_README_CONTENT"
 	}
 ]
+```
+
+### Get Stars Information
+
+```
+GET /{username}/stars
+```
+
+Retrieves stars information for a user's repositories including total stars and detailed repository information.
+
+#### Parameters
+
+- `username` (path): GitHub username
+
+#### Response
+
+Returns total stars count and list of repositories with stars (sorted by star count).
+
+#### Example Response
+
+```json
+{
+	"total_stars": 150,
+	"repositories": [
+		{
+			"name": "RepoName",
+			"description": "A popular project",
+			"stars": 100,
+			"url": "https://github.com/user/repo",
+			"language": "Python",
+			"created_at": "2023-01-01T00:00:00Z",
+			"updated_at": "2023-12-01T00:00:00Z"
+		}
+	]
+}
 ```
 
 ### Get Commit History
@@ -276,6 +312,14 @@ for repo in repos:
     print(f"Repository: {repo['title']}")
     print(f"Languages: {', '.join(repo['languages'])}")
     print(f"Commits: {repo['num_commits']}")
+    print(f"Stars: {repo['stars']}")
+
+# Get stars information
+stars_response = requests.get(f"{base_url}/{username}/stars")
+stars_data = stars_response.json()
+print(f"Total stars: {stars_data['total_stars']}")
+for repo in stars_data['repositories']:
+    print(f"  {repo['name']}: {repo['stars']} stars")
 
 # Increment profile views
 views_response = requests.get(f"{base_url}/{username}/profile-views")
@@ -305,6 +349,17 @@ fetch(`${baseUrl}/${username}/repos`)
 		repos.forEach((repo) => {
 			console.log(`Repository: ${repo.title}`);
 			console.log(`Languages: ${repo.languages.join(", ")}`);
+			console.log(`Stars: ${repo.stars}`);
+		});
+	});
+
+// Get stars information
+fetch(`${baseUrl}/${username}/stars`)
+	.then((response) => response.json())
+	.then((starsData) => {
+		console.log(`Total stars: ${starsData.total_stars}`);
+		starsData.repositories.forEach((repo) => {
+			console.log(`${repo.name}: ${repo.stars} stars`);
 		});
 	});
 

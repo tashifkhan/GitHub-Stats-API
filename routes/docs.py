@@ -617,7 +617,7 @@ docs_html_content = """
                             <span class="endpoint-toggle">+</span>
                         </div>
                         <div class="endpoint-content">
-                            <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, and commit count.</p>
+                            <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, commit count, and stars count.</p>
                             
                             <div class="note">
                                 <h3>Example Request</h3>
@@ -633,6 +633,7 @@ docs_html_content = """
         "live_website_url": "https://example.com",
         "languages": ["Python", "JavaScript"],
         "num_commits": 42,
+        "stars": 25,
         "readme": "BASE64_ENCODED_README_CONTENT"
     }
 ]</code></pre>
@@ -641,6 +642,45 @@ docs_html_content = """
                             <div class="error-response">
                                 <h3>Error Responses</h3>
                                 <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stars</code> Get User's Stars Information</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Retrieves stars information for a user's repositories including total stars and detailed repository information. Repositories are sorted by star count (highest first).</p>
+                            
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/stars</code></pre>
+                            </div>
+
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">{
+    "total_stars": 150,
+    "repositories": [
+        {
+            "name": "RepoName",
+            "description": "A popular project",
+            "stars": 100,
+            "url": "https://github.com/user/repo",
+            "language": "Python",
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-12-01T00:00:00Z"
+        }
+    ]
+}</code></pre>
+                            </div>
+
+                            <div class="error-response">
+                                <h3>Error Responses</h3>
+                                <p><code>404</code> - User not found or API error</p>
                                 <p><code>500</code> - GitHub token configuration error or API error</p>
                             </div>
                         </div>
