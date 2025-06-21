@@ -239,6 +239,37 @@ docs_html_content = """
                     #contribution-chart-container {
                         height: 30vh;
                     }
+                    .input-group {
+                        flex-direction: column;
+                    }
+                    
+                    .input-container {
+                        width: 100%;
+                    }
+                    
+                    .clear-history-btn {
+                        right: 0.75rem;
+                    }
+                    
+                    .history-dropdown {
+                        max-height: 250px;
+                    }
+                    
+                    .history-list {
+                        max-height: 200px;
+                    }
+                    
+                    .profile-cards {
+                        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                    }
+                    
+                    .repos-grid {
+                        grid-template-columns: 1fr;
+                    }
+                    
+                    .contribution-graph {
+                        grid-template-columns: repeat(26, 1fr);
+                    }
                 }
                 @media (max-width: 480px) {
                     body {
@@ -378,6 +409,54 @@ docs_html_content = """
                     gap: 1rem;
                     max-width: 500px;
                     margin: 0 auto;
+                }
+                
+                .input-container {
+                    position: relative;
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                }
+                
+                .input-container input {
+                    width: 100%;
+                    padding: 0.75rem 2.5rem 0.75rem 1rem;
+                    border: 2px solid var(--hover-color);
+                    border-radius: 8px;
+                    background: var(--code-background);
+                    color: var(--text-color);
+                    font-family: inherit;
+                    font-size: 1rem;
+                    transition: border-color 0.2s ease;
+                }
+                
+                .input-container input:focus {
+                    outline: none;
+                    border-color: var(--secondary-color);
+                }
+                
+                .clear-history-btn {
+                    position: absolute;
+                    right: 0.5rem;
+                    background: none;
+                    border: none;
+                    color: var(--text-color);
+                    cursor: pointer;
+                    padding: 0.25rem;
+                    border-radius: 4px;
+                    transition: all 0.2s ease;
+                    opacity: 0.7;
+                }
+                
+                .clear-history-btn:hover {
+                    opacity: 1;
+                    color: var(--secondary-color);
+                    background: var(--hover-color);
+                }
+                
+                .clear-history-btn .icon {
+                    width: 1rem;
+                    height: 1rem;
                 }
                 
                 .input-group input {
@@ -718,6 +797,178 @@ docs_html_content = """
                         grid-template-columns: repeat(26, 1fr);
                     }
                 }
+                
+                /* Custom Dropdown Styles */
+                .history-dropdown {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: var(--card-background);
+                    border: 1px solid var(--hover-color);
+                    border-top: none;
+                    border-radius: 0 0 8px 8px;
+                    box-shadow: 0 8px 25px rgba(2,12,27,0.3);
+                    z-index: 1000;
+                    opacity: 0;
+                    visibility: hidden;
+                    transform: translateY(-10px);
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    max-height: 300px;
+                    overflow: hidden;
+                }
+                
+                .history-dropdown.active {
+                    opacity: 1;
+                    visibility: visible;
+                    transform: translateY(0);
+                }
+                
+                .dropdown-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 0.75rem 1rem;
+                    border-bottom: 1px solid var(--hover-color);
+                    background: var(--hover-color);
+                }
+                
+                .dropdown-header span {
+                    color: var(--heading-color);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                }
+                
+                .clear-all-btn {
+                    background: none;
+                    border: none;
+                    color: var(--text-color);
+                    cursor: pointer;
+                    padding: 0.25rem;
+                    border-radius: 4px;
+                    transition: all 0.2s ease;
+                    opacity: 0.7;
+                }
+                
+                .clear-all-btn:hover {
+                    opacity: 1;
+                    color: var(--secondary-color);
+                    background: var(--card-background);
+                }
+                
+                .clear-all-btn .icon {
+                    width: 1rem;
+                    height: 1rem;
+                }
+                
+                .history-list {
+                    max-height: 250px;
+                    overflow-y: auto;
+                }
+                
+                .history-item {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 0.75rem 1rem;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    border-bottom: 1px solid rgba(136, 146, 176, 0.1);
+                }
+                
+                .history-item:last-child {
+                    border-bottom: none;
+                }
+                
+                .history-item:hover {
+                    background: var(--hover-color);
+                }
+                
+                .history-item.selected {
+                    background: var(--secondary-color);
+                    color: var(--background-color);
+                }
+                
+                .history-username {
+                    color: var(--text-color);
+                    font-weight: 500;
+                    flex: 1;
+                }
+                
+                .history-item:hover .history-username,
+                .history-item.selected .history-username {
+                    color: inherit;
+                }
+                
+                .history-delete-btn {
+                    background: none;
+                    border: none;
+                    color: var(--text-color);
+                    cursor: pointer;
+                    padding: 0.25rem;
+                    border-radius: 4px;
+                    transition: all 0.2s ease;
+                    opacity: 0;
+                    margin-left: 0.5rem;
+                }
+                
+                .history-item:hover .history-delete-btn {
+                    opacity: 0.7;
+                }
+                
+                .history-delete-btn:hover {
+                    opacity: 1 !important;
+                    color: #ff6b6b;
+                    background: rgba(255, 107, 107, 0.1);
+                }
+                
+                .history-delete-btn .icon {
+                    width: 0.8rem;
+                    height: 0.8rem;
+                }
+                
+                .history-empty {
+                    padding: 1rem;
+                    text-align: center;
+                    color: var(--text-color);
+                    font-style: italic;
+                    opacity: 0.7;
+                }
+                
+                /* Scrollbar styling for dropdown */
+                .history-list::-webkit-scrollbar {
+                    width: 6px;
+                }
+                
+                .history-list::-webkit-scrollbar-track {
+                    background: var(--code-background);
+                }
+                
+                .history-list::-webkit-scrollbar-thumb {
+                    background: var(--hover-color);
+                    border-radius: 3px;
+                }
+                
+                .history-list::-webkit-scrollbar-thumb:hover {
+                    background: var(--secondary-color);
+                }
+                
+                .input-group input {
+                    flex: 1;
+                    padding: 0.75rem 1rem;
+                    border: 2px solid var(--hover-color);
+                    border-radius: 8px;
+                    background: var(--code-background);
+                    color: var(--text-color);
+                    font-family: inherit;
+                    font-size: 1rem;
+                    transition: border-color 0.2s ease;
+                }
+                
+                .input-group input:focus {
+                    outline: none;
+                    border-color: var(--secondary-color);
+                }
             </style>
         </head>
         <body>
@@ -729,7 +980,25 @@ docs_html_content = """
             <div class="stalker-form">
                 <h3>Explore a GitHub Profile</h3>
                 <div class="input-group">
-                    <input type="text" id="github-username" placeholder="Enter GitHub username (e.g., tashifkhan)" />
+                    <div class="input-container">
+                        <input type="text" id="github-username" placeholder="Enter GitHub username (e.g., tashifkhan)" autocomplete="off" />
+                        <button type="button" id="clear-history" class="clear-history-btn" title="Clear search history">
+                            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            </svg>
+                        </button>
+                        <div id="history-dropdown" class="history-dropdown">
+                            <div class="dropdown-header">
+                                <span>Recent Searches</span>
+                                <button type="button" id="clear-all-history" class="clear-all-btn" title="Clear all history">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M19 13H5v-2h14v2z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div id="history-list" class="history-list"></div>
+                        </div>
+                    </div>
                     <button onclick="stalkGitHubUser()" class="stalk-button">
                         <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                         Analyze Profile
@@ -1289,7 +1558,177 @@ docs_html_content = """
                             item.classList.toggle('active');
                         });
                     });
+                    
+                    // Allow Enter key to submit form
+                    const input = document.getElementById('github-username');
+                    if (input) {
+                        input.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') {
+                                stalkGitHubUser();
+                            }
+                        });
+                        
+                        // Show dropdown on focus
+                        input.addEventListener('focus', function() {
+                            showDropdown();
+                        });
+                        
+                        // Hide dropdown when clicking outside
+                        document.addEventListener('click', function(e) {
+                            const inputContainer = document.querySelector('.input-container');
+                            if (!inputContainer.contains(e.target)) {
+                                hideDropdown();
+                            }
+                        });
+                    }
+                    
+                    // Initialize user history dropdown
+                    updateHistoryDropdown();
+                    
+                    // Add event listener for clear history button
+                    const clearBtn = document.getElementById('clear-history');
+                    if (clearBtn) {
+                        clearBtn.addEventListener('click', clearUserHistory);
+                    }
+                    
+                    // Add event listener for clear all button in dropdown
+                    const clearAllBtn = document.getElementById('clear-all-history');
+                    if (clearAllBtn) {
+                        clearAllBtn.addEventListener('click', clearUserHistory);
+                    }
                 });
+                
+                // User History Management
+                const USER_HISTORY_KEY = 'github_username_history';
+                const MAX_HISTORY_ITEMS = 10;
+                
+                function loadUserHistory() {
+                    try {
+                        const history = localStorage.getItem(USER_HISTORY_KEY);
+                        return history ? JSON.parse(history) : [];
+                    } catch (error) {
+                        console.error('Error loading user history:', error);
+                        return [];
+                    }
+                }
+                
+                function saveUserHistory(username) {
+                    if (!username || username.trim() === '') return;
+                    
+                    try {
+                        const history = loadUserHistory();
+                        const usernameLower = username.toLowerCase().trim();
+                        
+                        // Remove if already exists (to move to top)
+                        const filteredHistory = history.filter(item => item.toLowerCase() !== usernameLower);
+                        
+                        // Add to beginning
+                        filteredHistory.unshift(username.trim());
+                        
+                        // Keep only the latest MAX_HISTORY_ITEMS
+                        const trimmedHistory = filteredHistory.slice(0, MAX_HISTORY_ITEMS);
+                        
+                        localStorage.setItem(USER_HISTORY_KEY, JSON.stringify(trimmedHistory));
+                        updateHistoryDropdown();
+                    } catch (error) {
+                        console.error('Error saving user history:', error);
+                    }
+                }
+                
+                function updateHistoryDropdown() {
+                    const historyList = document.getElementById('history-list');
+                    const history = loadUserHistory();
+                    
+                    if (!historyList) return;
+                    
+                    // Clear existing items
+                    historyList.innerHTML = '';
+                    
+                    if (history.length === 0) {
+                        historyList.innerHTML = '<div class="history-empty">No recent searches</div>';
+                        return;
+                    }
+                    
+                    // Add history items
+                    history.forEach((username, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'history-item';
+                        item.innerHTML = `
+                            <span class="history-username">${username}</span>
+                            <button type="button" class="history-delete-btn" data-index="${index}" title="Remove from history">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                </svg>
+                            </button>
+                        `;
+                        
+                        // Add click event to select username
+                        item.addEventListener('click', (e) => {
+                            if (!e.target.closest('.history-delete-btn')) {
+                                document.getElementById('github-username').value = username;
+                                hideDropdown();
+                                stalkGitHubUser();
+                            }
+                        });
+                        
+                        // Add delete event
+                        const deleteBtn = item.querySelector('.history-delete-btn');
+                        deleteBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            removeFromHistory(index);
+                        });
+                        
+                        historyList.appendChild(item);
+                    });
+                }
+                
+                function showDropdown() {
+                    const dropdown = document.getElementById('history-dropdown');
+                    if (dropdown) {
+                        dropdown.classList.add('active');
+                    }
+                }
+                
+                function hideDropdown() {
+                    const dropdown = document.getElementById('history-dropdown');
+                    if (dropdown) {
+                        dropdown.classList.remove('active');
+                    }
+                }
+                
+                function removeFromHistory(index) {
+                    try {
+                        const history = loadUserHistory();
+                        history.splice(index, 1);
+                        localStorage.setItem(USER_HISTORY_KEY, JSON.stringify(history));
+                        updateHistoryDropdown();
+                    } catch (error) {
+                        console.error('Error removing from history:', error);
+                    }
+                }
+                
+                function clearUserHistory() {
+                    try {
+                        localStorage.removeItem(USER_HISTORY_KEY);
+                        updateHistoryDropdown();
+                        hideDropdown();
+                        
+                        // Show feedback
+                        const clearBtn = document.getElementById('clear-history');
+                        if (clearBtn) {
+                            const originalTitle = clearBtn.getAttribute('title');
+                            clearBtn.setAttribute('title', 'History cleared!');
+                            clearBtn.style.color = 'var(--secondary-color)';
+                            
+                            setTimeout(() => {
+                                clearBtn.setAttribute('title', originalTitle);
+                                clearBtn.style.color = '';
+                            }, 2000);
+                        }
+                    } catch (error) {
+                        console.error('Error clearing user history:', error);
+                    }
+                }
                 
                 // GitHub Profile Stalker functionality
                 async function stalkGitHubUser() {
@@ -1304,6 +1743,9 @@ docs_html_content = """
                         alert('Please enter a GitHub username');
                         return;
                     }
+                    
+                    // Save to history
+                    saveUserHistory(username);
                     
                     const loading = document.getElementById('loading');
                     const results = document.getElementById('profile-results');
@@ -1696,18 +2138,6 @@ docs_html_content = """
                     results.innerHTML = `<div class="error-message">${message}</div>`;
                     results.style.display = 'block';
                 }
-                
-                // Allow Enter key to submit form
-                document.addEventListener('DOMContentLoaded', function() {
-                    const input = document.getElementById('github-username');
-                    if (input) {
-                        input.addEventListener('keypress', function(e) {
-                            if (e.key === 'Enter') {
-                                stalkGitHubUser();
-                            }
-                        });
-                    }
-                });
             </script>
         </body>
         </html>
