@@ -9,7 +9,7 @@ docs_html_content = """
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>GitHub Stats API Documentation</title>
+            <title>GitHub Analytics Dashboard and API Documentation</title>
             <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
             <style>
                 :root {
@@ -721,244 +721,233 @@ docs_html_content = """
             </style>
         </head>
         <body>
-            <h1>GitHub Stats API Documentation</h1>
+            <h1>GitHub Analytics Dashboard</h1>
             
-            <p>This API provides access to GitHub user statistics and contribution data. Click on each endpoint to see details.</p>
-            <p>
-                Interactive API documentation (Swagger UI) is available at <a href="/docs" style="color: var(--secondary-color);">/docs</a>.
-                Alternative API documentation (ReDoc) is available at <a href="/redoc" style="color: var(--secondary-color);">/redoc</a>.
-            </p>
+            <p>An interactive dashboard for in-depth analysis of GitHub user statistics. Use the dashboard below to get a comprehensive look at any user's profile, including contribution history, language stats, and repository details.</p>
 
-            <!-- Interactive GitHub Profile Stalker -->
-            <div class="api-section">
-                <div class="section-header">
-                    <h2><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg> GitHub Profile Stalker</h2>
-                    <span class="section-toggle">&#9660;</span>
+            <!-- Interactive Dashboard -->
+            <div class="stalker-form">
+                <h3>Explore a GitHub Profile</h3>
+                <div class="input-group">
+                    <input type="text" id="github-username" placeholder="Enter GitHub username (e.g., tashifkhan)" />
+                    <button onclick="stalkGitHubUser()" class="stalk-button">
+                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                        Analyze Profile
+                    </button>
                 </div>
-                <div class="section-content">
-                    <div class="stalker-form">
-                        <h3>Want to stalk someone's GitHub? Enter their username below!</h3>
-                        <div class="input-group">
-                            <input type="text" id="github-username" placeholder="Enter GitHub username (e.g., tashifkhan)" />
-                            <button onclick="stalkGitHubUser()" class="stalk-button">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                                Stalk Profile
-                            </button>
-                        </div>
-                        <div id="loading" class="loading" style="display: none;">
-                            <div class="spinner"></div>
-                            <p>Fetching GitHub data...</p>
-                        </div>
-                    </div>
-
-                    <div id="profile-results" class="profile-results" style="display: none;">
-                        <!-- Profile Overview -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg> Profile Overview</h3>
-                            <div class="profile-cards">
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Total Commits</h4>
-                                        <div id="total-commits" class="card-value">-</div>
-                                    </div>
-                                </div>
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Longest Streak</h4>
-                                        <div id="longest-streak" class="card-value">-</div>
-                                    </div>
-                                </div>
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.5 2.54l2.6 1.53c.56-1.24.9-2.62.9-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.05.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.06-4.09l-2.6-1.53C16.17 17.98 14.21 19 12 19z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Current Streak</h4>
-                                        <div id="current-streak" class="card-value">-</div>
-                                    </div>
-                                </div>
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Profile Views</h4>
-                                        <div id="profile-views" class="card-value">-</div>
-                                    </div>
-                                </div>
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Total Stars</h4>
-                                        <div id="total-stars" class="card-value">-</div>
-                                    </div>
-                                </div>
-                                <div class="profile-card">
-                                    <div class="card-icon">
-                                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
-                                    </div>
-                                    <div class="card-content">
-                                        <h4>Repositories</h4>
-                                        <div id="total-repos" class="card-value">-</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Top Languages -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> Top Programming Languages</h3>
-                            <div id="languages-chart" class="languages-chart"></div>
-                        </div>
-
-                        <!-- Contribution Graph -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg> Contribution Graph</h3>
-                            <div id="contribution-chart-container" style="position: relative; height: 40vh;">
-                                <canvas id="contribution-chart"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- Top Repositories -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> Top Starred Repositories</h3>
-                            <div id="top-repos" class="repos-grid"></div>
-                        </div>
-
-                        <!-- Recent Commits -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> Recent Commits</h3>
-                            <div id="recent-commits" class="commits-list"></div>
-                        </div>
-
-                        <!-- All Repositories -->
-                        <div class="profile-section">
-                            <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg> All Repositories</h3>
-                            <div id="all-repos" class="repos-grid"></div>
-                        </div>
-                    </div>
+                <div id="loading" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Fetching GitHub data...</p>
                 </div>
             </div>
 
-            <!-- General Section -->
-            <div class="api-section">
-                <div class="section-header">
-                    <h2>General</h2>
-                    <span class="section-toggle">&#9660;</span>
-                </div>
-                <div class="section-content">
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/</code> Custom API Documentation</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Provides this custom HTML documentation page for the API.</p>
-                            <p>For interactive API exploration and testing, you can use:
-                                <ul>
-                                    <li>Swagger UI: <a href="/docs" style="color: var(--secondary-color);">/docs</a></li>
-                                    <li>ReDoc: <a href="/redoc" style="color: var(--secondary-color);">/redoc</a></li>
-                                </ul>
-                            </p>
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /</code></pre>
+            <div id="profile-results" class="profile-results" style="display: none;">
+                <!-- Profile Overview -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg> Profile Overview</h3>
+                    <div class="profile-cards">
+                        <div class="profile-card">
+                            <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
                             </div>
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+                            <div class="card-content">
+                                <h4>Total Commits</h4>
+                                <div id="total-commits" class="card-value">-</div>
+                            </div>
+                        </div>
+                        <div class="profile-card">
+                            <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                            </div>
+                            <div class="card-content">
+                                <h4>Longest Streak</h4>
+                                <div id="longest-streak" class="card-value">-</div>
+                            </div>
+                        </div>
+                        <div class="profile-card">
+                            <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.5 2.54l2.6 1.53c.56-1.24.9-2.62.9-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.05.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.06-4.09l-2.6-1.53C16.17 17.98 14.21 19 12 19z"/></svg>
+                            </div>
+                            <div class="card-content">
+                                <h4>Current Streak</h4>
+                                <div id="current-streak" class="card-value">-</div>
+                            </div>
+                        </div>
+                        <div class="profile-card">
+                            <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                            </div>
+                            <div class="card-content">
+                                <h4>Total Stars</h4>
+                                <div id="total-stars" class="card-value">-</div>
+                            </div>
+                        </div>
+                        <div class="profile-card">
+                            <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+                            </div>
+                            <div class="card-content">
+                                <h4>Repositories</h4>
+                                <div id="total-repos" class="card-value">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Languages -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> Top Programming Languages</h3>
+                    <div id="languages-chart" class="languages-chart"></div>
+                </div>
+
+                <!-- Contribution Graph -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg> Contribution Graph</h3>
+                    <div id="contribution-chart-container" style="position: relative; height: 30vh;">
+                        <canvas id="contribution-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Top Repositories -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> Top Starred Repositories</h3>
+                    <div id="top-repos" class="repos-grid"></div>
+                </div>
+
+                <!-- Recent Commits -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> Recent Commits</h3>
+                    <div id="recent-commits" class="commits-list"></div>
+                </div>
+
+                <!-- All Repositories -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg> All Repositories</h3>
+                    <div id="all-repos" class="repos-grid"></div>
+                </div>
+            </div>
+            
+            <!-- API Documentation -->
+            <div id="api-docs-container" style="margin-top: 3rem;">
+                <h1>API Documentation</h1>
+                <p>
+                    This dashboard is powered by the GitHub Analytics API. You can use it directly in your own projects.
+                    For interactive API exploration, see
+                    <a href="/docs" style="color: var(--secondary-color);">Swagger UI</a> or
+                    <a href="/redoc" style="color: var(--secondary-color);">ReDoc</a>.
+                </p>
+
+                <!-- General Section -->
+                <div class="api-section">
+                    <div class="section-header">
+                        <h2>General</h2>
+                        <span class="section-toggle">&#9660;</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/</code> Custom API Documentation</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Provides this custom HTML documentation page for the API.</p>
+                                <p>For interactive API exploration and testing, you can use:
+                                    <ul>
+                                        <li>Swagger UI: <a href="/docs" style="color: var(--secondary-color);">/docs</a></li>
+                                        <li>ReDoc: <a href="/redoc" style="color: var(--secondary-color);">/redoc</a></li>
+                                    </ul>
+                                </p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
 &lt;html&gt;
     &lt;head&gt;...&lt;/head&gt;
     &lt;body&gt;... API Documentation ...&lt;/body&gt;
 &lt;/html&gt;</code></pre>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/docs</code> Swagger UI API Documentation</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Provides interactive API documentation using Swagger UI. This interface allows you to explore endpoints, view models, and test API calls directly in your browser.</p>
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /docs</code></pre>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/docs</code> Swagger UI API Documentation</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
-                            <div class="response">
-                                <h3>Response</h3>
-                                <p>Returns the Swagger UI interface.</p>
-                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+                            <div class="endpoint-content">
+                                <p>Provides interactive API documentation using Swagger UI. This interface allows you to explore endpoints, view models, and test API calls directly in your browser.</p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /docs</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <p>Returns the Swagger UI interface.</p>
+                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
 &lt;html&gt;
     &lt;head&gt;... Swagger UI ...&lt;/head&gt;
     &lt;body&gt;... Interactive Documentation ...&lt;/body&gt;
 &lt;/html&gt;</code></pre>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/redoc</code> ReDoc API Documentation</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Provides alternative API documentation using ReDoc. This interface offers a clean, three-panel view of your API specification, ideal for reading and understanding the API structure.</p>
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /redoc</code></pre>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/redoc</code> ReDoc API Documentation</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
-                            <div class="response">
-                                <h3>Response</h3>
-                                <p>Returns the ReDoc UI interface.</p>
-                                <pre><code class="language-html">&lt;!DOCTYPE html&gt;
+                            <div class="endpoint-content">
+                                <p>Provides alternative API documentation using ReDoc. This interface offers a clean, three-panel view of your API specification, ideal for reading and understanding the API structure.</p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /redoc</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <p>Returns the ReDoc UI interface.</p>
+                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
 &lt;html&gt;
     &lt;head&gt;... ReDoc ...&lt;/head&gt;
     &lt;body&gt;... API Documentation ...&lt;/body&gt;
 &lt;/html&gt;</code></pre>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- User Analytics Section -->
-            <div class="api-section">
-                <div class="section-header">
-                    <h2>User Analytics</h2>
-                    <span class="section-toggle">&#9660;</span>
-                </div>
-                <div class="section-content">
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/languages</code> Get User's Programming Languages</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Get the programming languages used in a GitHub user's repositories.</p>
-                            
-                            <h3>Parameters</h3>
-                            <div class="parameter">
-                                <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                <!-- User Analytics Section -->
+                <div class="api-section">
+                    <div class="section-header">
+                        <h2>User Analytics</h2>
+                        <span class="section-toggle">&#9660;</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/languages</code> Get User's Programming Languages</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Get the programming languages used in a GitHub user's repositories.</p>
+                                
+                                <h3>Parameters</h3>
+                                <div class="parameter">
+                                    <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                                </div>
 
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
-                            </div>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">[
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
     {
         "name": "Python", 
         "percentage": 45.0
@@ -968,36 +957,36 @@ docs_html_content = """
         "percentage": 30.0
     }
 ]</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found or API error</p>
-                                <p><code>500</code> - GitHub token configuration error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/contributions</code> Get User's Contribution History</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
-                            
-                            <div class="parameter">
-                                <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/contributions</code> Get User's Contribution History</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
+                                
+                                <div class="parameter">
+                                    <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
+                                </div>
 
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
-                            </div>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">{
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">{
     "contributions": {
         "2023": {
             "data": {
@@ -1013,36 +1002,36 @@ docs_html_content = """
     "longestStreak": 30,
     "currentStreak": 15
 }</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found or API error</p>
-                                <p><code>500</code> - GitHub token configuration error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stats</code> Get User's Complete Statistics</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, current streak, profile visitors count, and contribution history data.</p>
-                            
-                            <div class="parameter">
-                                <code>exclude</code> Optional comma-separated list of languages to exclude
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stats</code> Get User's Complete Statistics</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, current streak, profile visitors count, and contribution history data.</p>
+                                
+                                <div class="parameter">
+                                    <code>exclude</code> Optional comma-separated list of languages to exclude
+                                </div>
 
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
-                            </div>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">{
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">{
     "status": "success",
     "message": "retrieved",
     "topLanguages": [
@@ -1054,84 +1043,84 @@ docs_html_content = """
     "profile_visitors": 567,
     "contributions": { ... }
 }</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found or API error</p>
-                                <p><code>500</code> - GitHub token configuration error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/profile-views</code> Get and Increment Profile Views</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Gets the current profile views count for a user and optionally increments it. Similar to the GitHub Profile Views Counter service.</p>
-                            
-                            <div class="parameter">
-                                <code>increment</code> Optional boolean to increment the view count (default: true)
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/profile-views</code> Get and Increment Profile Views</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
-                            <div class="parameter">
-                                <code>base</code> Optional base count to set (for migration from other services)
-                            </div>
+                            <div class="endpoint-content">
+                                <p>Gets the current profile views count for a user and optionally increments it. Similar to the GitHub Profile Views Counter service.</p>
+                                
+                                <div class="parameter">
+                                    <code>increment</code> Optional boolean to increment the view count (default: true)
+                                </div>
+                                <div class="parameter">
+                                    <code>base</code> Optional base count to set (for migration from other services)
+                                </div>
 
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/profile-views?increment=true</code></pre>
-                            </div>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/profile-views?increment=true</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">{
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">{
     "username": "tashifkhan",
     "views": 1234,
     "incremented": true
 }</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="note">
-                                <h3>Usage Examples</h3>
-                                <p><strong>Basic usage (increments count):</strong></p>
-                                <pre><code>GET /tashifkhan/profile-views</code></pre>
-                                
-                                <p><strong>Get count without incrementing:</strong></p>
-                                <pre><code>GET /tashifkhan/profile-views?increment=false</code></pre>
-                                
-                                <p><strong>Set base count for migration:</strong></p>
-                                <pre><code>GET /tashifkhan/profile-views?base=1000</code></pre>
+                                <div class="note">
+                                    <h3>Usage Examples</h3>
+                                    <p><strong>Basic usage (increments count):</strong></p>
+                                    <pre><code>GET /tashifkhan/profile-views</code></pre>
+                                    
+                                    <p><strong>Get count without incrementing:</strong></p>
+                                    <pre><code>GET /tashifkhan/profile-views?increment=false</code></pre>
+                                    
+                                    <p><strong>Set base count for migration:</strong></p>
+                                    <pre><code>GET /tashifkhan/profile-views?base=1000</code></pre>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Dashboard Details Section -->
-            <div class="api-section">
-                <div class="section-header">
-                    <h2>Dashboard Details</h2>
-                    <span class="section-toggle">&#9660;</span>
-                </div>
-                <div class="section-content">
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/repos</code> Get User's Repository Details</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, commit count, and stars count.</p>
-                            
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/repos</code></pre>
+                <!-- Dashboard Details Section -->
+                <div class="api-section">
+                    <div class="section-header">
+                        <h2>Dashboard Details</h2>
+                        <span class="section-toggle">&#9660;</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/repos</code> Get User's Repository Details</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, commit count, and stars count.</p>
+                                
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/repos</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">[
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
     {
         "title": "RepoName",
         "description": "A cool project.",
@@ -1142,32 +1131,32 @@ docs_html_content = """
         "readme": "BASE64_ENCODED_README_CONTENT"
     }
 ]</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                                    <p><code>500</code> - GitHub token configuration error or API error</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stars</code> Get User's Stars Information</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Retrieves stars information for a user's repositories including total stars and detailed repository information. Repositories are sorted by star count (highest first).</p>
-                            
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/stars</code></pre>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stars</code> Get User's Stars Information</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Retrieves stars information for a user's repositories including total stars and detailed repository information. Repositories are sorted by star count (highest first).</p>
+                                
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/stars</code></pre>
+                                </div>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">{
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">{
     "total_stars": 150,
     "repositories": [
         {
@@ -1181,32 +1170,32 @@ docs_html_content = """
         }
     ]
 }</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found or API error</p>
-                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error or API error</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="endpoint">
-                        <div class="endpoint-header">
-                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/commits</code> Get User's Commit History Across All Repositories</h2>
-                            <span class="endpoint-toggle">+</span>
-                        </div>
-                        <div class="endpoint-content">
-                            <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp (most recent first).</p>
-
-                            <div class="note">
-                                <h3>Example Request</h3>
-                                <pre><code>GET /tashifkhan/commits</code></pre>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/commits</code> Get User's Commit History Across All Repositories</h2>
+                                <span class="endpoint-toggle">+</span>
                             </div>
+                            <div class="endpoint-content">
+                                <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp (most recent first).</p>
 
-                            <div class="response">
-                                <h3>Response</h3>
-                                <pre><code class="language-json">[
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/commits</code></pre>
+                                </div>
+
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
     {
         "repo": "RepoName",
         "message": "Fix: A critical bug",
@@ -1215,28 +1204,28 @@ docs_html_content = """
         "url": "https://github.com/user/repo/commit/sha"
     }
 ]</code></pre>
-                            </div>
+                                </div>
 
-                            <div class="error-response">
-                                <h3>Error Responses</h3>
-                                <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                                <p><code>500</code> - GitHub token configuration error or API error</p>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
+                                    <p><code>500</code> - GitHub token configuration error or API error</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="error-section">
-                <h2>Error Responses</h2>
-                
-                <div class="error-item">
-                    <div class="error-toggle">
-                        <h3>User not found</h3>
-                        <span class="error-toggle-icon">+</span>
-                    </div>
-                    <div class="error-content">
-                        <pre><code>{
+                <div class="error-section">
+                    <h2>Error Responses</h2>
+                    
+                    <div class="error-item">
+                        <div class="error-toggle">
+                            <h3>User not found</h3>
+                            <span class="error-toggle-icon">+</span>
+                        </div>
+                        <div class="error-content">
+                            <pre><code>{
     "status": "error",
     "message": "User not found or API error",
     "topLanguages": [],
@@ -1244,16 +1233,16 @@ docs_html_content = """
     "longestStreak": 0,
     "currentStreak": 0
 }</code></pre>
+                        </div>
                     </div>
-                </div>
 
-                <div class="error-item">
-                    <div class="error-toggle">
-                        <h3>Server error</h3>
-                        <span class="error-toggle-icon">+</span>
-                    </div>
-                    <div class="error-content">
-                        <pre><code>{
+                    <div class="error-item">
+                        <div class="error-toggle">
+                            <h3>Server error</h3>
+                            <span class="error-toggle-icon">+</span>
+                        </div>
+                        <div class="error-content">
+                            <pre><code>{
     "status": "error",
     "message": "GitHub token not configured",
     "topLanguages": [],
@@ -1261,6 +1250,8 @@ docs_html_content = """
     "longestStreak": 0,
     "currentStreak": 0
 }</code></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1297,11 +1288,6 @@ docs_html_content = """
                         toggle.addEventListener('click', () => {
                             item.classList.toggle('active');
                         });
-                    });
-                    
-                    // Make all API sections active by default
-                    apiSections.forEach(section => {
-                        section.classList.add('active');
                     });
                 });
                 
