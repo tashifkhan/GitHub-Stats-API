@@ -756,7 +756,99 @@ async def get_custom_documentation():
     return HTMLResponse(content=docs_html_content)
 
 
-if __name__ == "__main__":
-    import uvicorn
+def test_new_endpoints():
+    """Test the new endpoints: repos, commits, profile-views, and profile-views-badge"""
+    print("\n" + "=" * 50)
+    print("TESTING NEW ENDPOINTS")
+    print("=" * 50)
 
-    uvicorn.run(app, port=8000)
+    username = "tashifkhan"
+    base_url = "http://localhost:8989"
+
+    # Test repository details endpoint
+    print(f"\n1. Testing repository details endpoint...")
+    try:
+        response = requests.get(f"{base_url}/{username}/repos")
+        if response.status_code == 200:
+            repos = response.json()
+            print(
+                f"✅ Repository details endpoint working! Found {len(repos)} repositories"
+            )
+            if repos:
+                print(f"   First repo: {repos[0]['title']}")
+                print(f"   Languages: {repos[0]['languages']}")
+                print(f"   Commits: {repos[0]['num_commits']}")
+        else:
+            print(f"❌ Repository details endpoint failed: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Repository details endpoint error: {e}")
+
+    # Test commit history endpoint
+    print(f"\n2. Testing commit history endpoint...")
+    try:
+        response = requests.get(f"{base_url}/{username}/commits")
+        if response.status_code == 200:
+            commits = response.json()
+            print(f"✅ Commit history endpoint working! Found {len(commits)} commits")
+            if commits:
+                print(f"   Latest commit: {commits[0]['message'][:50]}...")
+                print(f"   Repository: {commits[0]['repo']}")
+        else:
+            print(f"❌ Commit history endpoint failed: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Commit history endpoint error: {e}")
+
+    # Test profile views endpoint
+    print(f"\n3. Testing profile views endpoint...")
+    try:
+        response = requests.get(f"{base_url}/{username}/profile-views")
+        if response.status_code == 200:
+            views_data = response.json()
+            print(f"✅ Profile views endpoint working!")
+            print(f"   Username: {views_data['username']}")
+            print(f"   Views: {views_data['views']}")
+            print(f"   Incremented: {views_data['incremented']}")
+        else:
+            print(f"❌ Profile views endpoint failed: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Profile views endpoint error: {e}")
+
+    # Test profile views badge endpoint
+    print(f"\n4. Testing profile views badge endpoint...")
+    try:
+        response = requests.get(f"{base_url}/{username}/profile-views-badge")
+        if response.status_code == 200:
+            print(f"✅ Profile views badge endpoint working!")
+            print(f"   Content-Type: {response.headers.get('content-type')}")
+            print(f"   Content length: {len(response.content)} bytes")
+            print(f"   Badge URL: {base_url}/{username}/profile-views-badge")
+        else:
+            print(f"❌ Profile views badge endpoint failed: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Profile views badge endpoint error: {e}")
+
+    # Test updated stats endpoint with profile visitors
+    print(f"\n5. Testing updated stats endpoint with profile visitors...")
+    try:
+        response = requests.get(f"{base_url}/{username}/stats")
+        if response.status_code == 200:
+            stats = response.json()
+            print(f"✅ Updated stats endpoint working!")
+            print(f"   Profile visitors: {stats.get('profile_visitors', 'N/A')}")
+            print(f"   Total commits: {stats.get('totalCommits', 'N/A')}")
+            print(f"   Longest streak: {stats.get('longestStreak', 'N/A')}")
+            print(f"   Current streak: {stats.get('currentStreak', 'N/A')}")
+        else:
+            print(f"❌ Updated stats endpoint failed: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Updated stats endpoint error: {e}")
+
+
+if __name__ == "__main__":
+    # Run the original tests
+    test_language_stats()
+    test_contribution_history()
+    test_complete_stats()
+
+    # Run the new endpoint tests
+    test_new_endpoints()

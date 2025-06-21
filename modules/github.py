@@ -9,6 +9,7 @@ class GitHubStatsResponse(BaseModel):
     totalCommits: int
     longestStreak: int
     currentStreak: int
+    profile_visitors: int = 0
     contributions: Optional[Dict] = None
 
     @classmethod
@@ -20,6 +21,7 @@ class GitHubStatsResponse(BaseModel):
             totalCommits=0,
             longestStreak=0,
             currentStreak=0,
+            profile_visitors=0,
         )
 
 

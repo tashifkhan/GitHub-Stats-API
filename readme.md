@@ -1,6 +1,6 @@
 # GitHub Stats API
 
-A robust RESTful API built with FastAPI that retrieves and analyzes GitHub user data, including programming language statistics and contribution history.
+A robust RESTful API built with FastAPI that retrieves and analyzes GitHub user data, including programming language statistics, contribution history, and profile views tracking.
 
 hosted at ![github-stats.tashif.codes](https://github-stats.tashif.codes)
 
@@ -10,6 +10,9 @@ hosted at ![github-stats.tashif.codes](https://github-stats.tashif.codes)
 - Retrieve detailed contribution history and metrics
 - View total commits and longest streak information
 - Get comprehensive user statistics in a single request
+- Track profile visitors count (similar to GitHub Profile Views Counter)
+- Get detailed repository information including README content
+- Retrieve commit history across all repositories
 - Interactive API documentation (Swagger UI & ReDoc)
 - Custom HTML documentation page
 - Easy integration with other applications
@@ -20,7 +23,7 @@ hosted at ![github-stats.tashif.codes](https://github-stats.tashif.codes)
 GET /{username}/stats
 ```
 
-Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.
+Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, and profile visitors count.
 
 #### Parameters
 
@@ -29,15 +32,20 @@ Get comprehensive GitHub statistics for a user, combining top programming langua
 
 #### Response
 
-Returns comprehensive data including top programming languages, total commits, longest streak, and contribution history.
+Returns comprehensive data including top programming languages, total commits, longest streak, current streak, profile visitors, and contribution history.
 
 #### Example Response
 
 ```json
 {
+	"status": "success",
+	"message": "retrieved",
 	"topLanguages": [{ "name": "Python", "percentage": 45.0 }],
 	"totalCommits": 1234,
-	"longestStreak": 30
+	"longestStreak": 30,
+	"currentStreak": 15,
+	"profile_visitors": 567,
+	"contributions": { ... }
 }
 ```
 
@@ -97,10 +105,10 @@ Returns contribution calendar data, total commit count, and longest contribution
 					}
 				}
 			}
-		},
-		"totalCommits": 1234,
-		"longestStreak": 30
-	}
+		}
+	},
+	"totalCommits": 1234,
+	"longestStreak": 30
 }
 ```
 
@@ -110,7 +118,7 @@ Returns contribution calendar data, total commit count, and longest contribution
 GET /{username}/repos
 ```
 
-Retrieves detailed information for each of the user's public repositories.
+Retrieves detailed information for each of the user's public repositories, including README content, languages, and commit count.
 
 #### Parameters
 
@@ -118,7 +126,7 @@ Retrieves detailed information for each of the user's public repositories.
 
 #### Response
 
-Returns a list of repository details.
+Returns a list of repository details with comprehensive information.
 
 #### Example Response
 
@@ -141,7 +149,7 @@ Returns a list of repository details.
 GET /{username}/commits
 ```
 
-Retrieves a list of all commits made by the user across their owned repositories.
+Retrieves a list of all commits made by the user across their owned repositories, sorted by timestamp (most recent first).
 
 #### Parameters
 
@@ -163,6 +171,54 @@ Returns a list of commit details.
 		"url": "https://github.com/user/repo/commit/sha"
 	}
 ]
+```
+
+### Get Profile Views
+
+```
+GET /{username}/profile-views
+```
+
+Gets the current profile views count for a user and optionally increments it. Similar to the GitHub Profile Views Counter service.
+
+#### Parameters
+
+- `username` (path): GitHub username
+- `increment` (query, optional): Whether to increment the view count (default: true)
+- `base` (query, optional): Base count to set (for migration from other services)
+
+#### Response
+
+Returns the profile views count and whether it was incremented.
+
+#### Example Response
+
+```json
+{
+	"username": "tashifkhan",
+	"views": 1234,
+	"incremented": true
+}
+```
+
+#### Usage Examples
+
+**Basic usage (increments count):**
+
+```
+GET /tashifkhan/profile-views
+```
+
+**Get count without incrementing:**
+
+```
+GET /tashifkhan/profile-views?increment=false
+```
+
+**Set base count for migration:**
+
+```
+GET /tashifkhan/profile-views?base=1000
 ```
 
 ## API Documentation
@@ -188,8 +244,9 @@ Error responses follow this format:
 	"topLanguages": [],
 	"totalCommits": 0,
 	"longestStreak": 0,
-	"repos": [],
-	"commits": []
+	"currentStreak": 0,
+	"profile_visitors": 0,
+	"contributions": null
 }
 ```
 
@@ -203,10 +260,27 @@ import requests
 username = "octocat"
 # Update base URL if running locally, e.g., http://localhost:8000
 base_url = "https://github-stats.tashif.codes" # Or your deployed URL
+
+# Get complete statistics
 response = requests.get(f"{base_url}/{username}/stats")
 data = response.json()
 
 print(f"{username} has made {data['totalCommits']} commits with a longest streak of {data['longestStreak']} days!")
+print(f"Profile has been viewed {data['profile_visitors']} times!")
+
+# Get repository details
+repos_response = requests.get(f"{base_url}/{username}/repos")
+repos = repos_response.json()
+
+for repo in repos:
+    print(f"Repository: {repo['title']}")
+    print(f"Languages: {', '.join(repo['languages'])}")
+    print(f"Commits: {repo['num_commits']}")
+
+# Increment profile views
+views_response = requests.get(f"{base_url}/{username}/profile-views")
+views_data = views_response.json()
+print(f"Profile views: {views_data['views']}")
 ```
 
 ### JavaScript
@@ -215,9 +289,31 @@ print(f"{username} has made {data['totalCommits']} commits with a longest streak
 const username = "octocat";
 // Update base URL if running locally, e.g., http://localhost:8000
 const baseUrl = "https://github-stats.tashif.codes"; // Or your deployed URL
+
+// Get complete statistics
 fetch(`${baseUrl}/${username}/stats`)
 	.then((response) => response.json())
-	.then((data) => console.log(data));
+	.then((data) => {
+		console.log(`Total commits: ${data.totalCommits}`);
+		console.log(`Profile visitors: ${data.profile_visitors}`);
+	});
+
+// Get repository details
+fetch(`${baseUrl}/${username}/repos`)
+	.then((response) => response.json())
+	.then((repos) => {
+		repos.forEach((repo) => {
+			console.log(`Repository: ${repo.title}`);
+			console.log(`Languages: ${repo.languages.join(", ")}`);
+		});
+	});
+
+// Increment profile views
+fetch(`${baseUrl}/${username}/profile-views`)
+	.then((response) => response.json())
+	.then((data) => {
+		console.log(`Profile views: ${data.views}`);
+	});
 ```
 
 ## Installation

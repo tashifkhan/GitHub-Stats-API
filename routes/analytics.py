@@ -1,10 +1,11 @@
 import asyncio
 from fastapi import APIRouter, HTTPException, Query, Path
-from fastapi.responses import JSONResponse
-from typing import Dict, List, Optional
-from modules.github import LanguageData
+from fastapi.responses import JSONResponse, Response
+from typing import Dict, List, Optional, Any
+from modules.github import LanguageData, RepoDetail
 import os
 from services.github_service import *
+from services.profile_views_service import increment_profile_views, get_profile_views
 
 analytics_router = APIRouter()
 
@@ -112,6 +113,157 @@ async def get_user_contributions(
 
 
 @analytics_router.get(
+    "/{username}/repos",
+    tags=["User Analytics"],
+    summary="Get User's Repository Details",
+    description="""
+    Retrieves detailed information for each of the user's public repositories including:
+    
+    - Repository name and description
+    - Live website URL (if available in description)
+    - Programming languages used
+    - Number of commits
+    - README content (Base64 encoded)
+    
+    This endpoint provides comprehensive repository information for portfolio displays.
+    """,
+    response_description="List of repository details with comprehensive information",
+    responses={
+        200: {
+            "description": "Successfully retrieved repository details",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "title": "RepoName",
+                            "description": "A cool project.",
+                            "live_website_url": "https://example.com",
+                            "languages": ["Python", "JavaScript"],
+                            "num_commits": 42,
+                            "readme": "BASE64_ENCODED_README_CONTENT",
+                        }
+                    ]
+                }
+            },
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"},
+    },
+)
+async def get_user_repos(
+    username: str = Path(..., description="GitHub username"),
+) -> List[RepoDetail]:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    try:
+        return await get_repo_details(username, token)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="User not found or API error")
+        raise e
+
+
+@analytics_router.get(
+    "/{username}/commits",
+    tags=["User Analytics"],
+    summary="Get User's Commit History",
+    description="""
+    Retrieves a list of all commits made by the user across their owned repositories.
+    
+    - Sorted by timestamp (most recent first)
+    - Includes commit message, SHA, and URL
+    - Provides comprehensive commit history for analysis
+    """,
+    response_description="List of commit details across all repositories",
+    responses={
+        200: {
+            "description": "Successfully retrieved commit history",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "repo": "RepoName",
+                            "message": "Fix: A critical bug",
+                            "timestamp": "2023-01-01T12:00:00Z",
+                            "sha": "commit_sha_hash",
+                            "url": "https://github.com/user/repo/commit/sha",
+                        }
+                    ]
+                }
+            },
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"},
+    },
+)
+async def get_user_commits(
+    username: str = Path(..., description="GitHub username"),
+) -> List[CommitDetail]:
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+
+    try:
+        return await get_all_commits(username, token)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="User not found or API error")
+        raise e
+
+
+@analytics_router.get(
+    "/{username}/profile-views",
+    tags=["User Analytics"],
+    summary="Get and Increment Profile Views",
+    description="""
+    Gets the current profile views count for a user and optionally increments it.
+    Similar to the GitHub Profile Views Counter service.
+    
+    - Returns current profile views count
+    - Optionally increments the count (when increment=true)
+    - Supports base count for migration from other services
+    """,
+    response_description="Profile views count",
+    responses={
+        200: {
+            "description": "Successfully retrieved profile views count",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "username": "tashifkhan",
+                        "views": 1234,
+                        "incremented": True,
+                    }
+                }
+            },
+        },
+    },
+)
+async def get_profile_views_count(
+    username: str = Path(..., description="GitHub username"),
+    increment: bool = Query(True, description="Whether to increment the view count"),
+    base: Optional[int] = Query(None, description="Base count to set (for migration)"),
+) -> Dict[str, Any]:
+    if base is not None:
+        views = await get_profile_views(username, base)
+        return {
+            "username": username,
+            "views": views,
+            "incremented": False,
+            "base_set": True,
+        }
+
+    if increment:
+        views = await increment_profile_views(username)
+        return {"username": username, "views": views, "incremented": True}
+    else:
+        views = await get_profile_views(username)
+        return {"username": username, "views": views, "incremented": False}
+
+
+@analytics_router.get(
     "/{username}/stats",
     tags=["User Analytics"],
     summary="Get User's Complete Statistics",
@@ -121,6 +273,8 @@ async def get_user_contributions(
     - Top programming languages
     - Total contribution count
     - Longest contribution streak
+    - Current contribution streak
+    - Profile visitors count
     - Contribution history data
     
     This endpoint provides a complete overview of a user's GitHub activity.
@@ -138,6 +292,7 @@ async def get_user_contributions(
                         "totalCommits": 1234,
                         "longestStreak": 30,
                         "currentStreak": 15,
+                        "profile_visitors": 567,
                         "contributions": {
                             "2023": {
                                 "data": {
@@ -164,6 +319,7 @@ async def get_user_contributions(
                         "totalCommits": 0,
                         "longestStreak": 0,
                         "currentStreak": 0,
+                        "profile_visitors": 0,
                         "contributions": None,
                     }
                 }
@@ -180,7 +336,7 @@ async def get_user_contributions(
                         "totalCommits": 0,
                         "longestStreak": 0,
                         "currentStreak": 0,
-                        "contributions": None,
+                        "profile_visitors": 0,
                         "contributions": None,
                     }
                 }
@@ -197,10 +353,7 @@ async def get_user_stats(
 ) -> GitHubStatsResponse:
     token = os.getenv("GITHUB_TOKEN")
     if not token:
-        error_response = GitHubStatsResponse.error(
-            status="error", message="GitHub token not configured"
-        )
-        return JSONResponse(content=error_response.model_dump(), status_code=500)
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
 
     excluded_list = exclude.split(",") if exclude else []
 
@@ -208,41 +361,28 @@ async def get_user_stats(
         contribution_data = await get_contribution_graphs(username, token)
     except HTTPException as e:
         if e.status_code == 404:
-            error_response = GitHubStatsResponse.error(
-                status="error",
-                message="User not found or API error fetching contributions",
+            raise HTTPException(
+                status_code=404,
+                detail="User not found or API error fetching contributions",
             )
-            return JSONResponse(content=error_response.model_dump(), status_code=404)
-        error_response = GitHubStatsResponse.error(
-            status="error", message=str(e.detail)
-        )
-        return JSONResponse(
-            content=error_response.model_dump(),
-            status_code=getattr(e, "status_code", 500),
-        )
+        raise e
 
     try:
         language_stats = await get_language_stats(username, token, excluded_list)
-
     except HTTPException as e:
         if e.status_code == 404:
-            error_response = GitHubStatsResponse.error(
-                status="error",
-                message="User not found or API error fetching language stats",
+            raise HTTPException(
+                status_code=404,
+                detail="User not found or API error fetching language stats",
             )
-            return JSONResponse(content=error_response.model_dump(), status_code=404)
-
-        error_response = GitHubStatsResponse.error(
-            status="error", message=str(e.detail)
-        )
-        return JSONResponse(
-            content=error_response.model_dump(),
-            status_code=getattr(e, "status_code", 500),
-        )
+        raise e
 
     total_commits = calculate_total_commits(contribution_data)
     longest_streak = calculate_longest_streak(contribution_data)
     current_streak = calculate_current_streak(contribution_data)
+
+    # Get profile visitors count
+    profile_visitors = await get_profile_views(username)
 
     response = GitHubStatsResponse(
         status="success",
@@ -251,6 +391,7 @@ async def get_user_stats(
         totalCommits=total_commits,
         longestStreak=longest_streak,
         currentStreak=current_streak,
+        profile_visitors=profile_visitors,
         contributions=contribution_data,
     )
     return response

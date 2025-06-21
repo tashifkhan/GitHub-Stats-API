@@ -23,6 +23,9 @@ archive.zip
 .env
 .venv
 
+# Profile views data
+profile_views.json
+
 # vim temporary files
 *~
 .*.sw?

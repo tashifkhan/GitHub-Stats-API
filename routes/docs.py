@@ -524,7 +524,7 @@ docs_html_content = """
                             <span class="endpoint-toggle">+</span>
                         </div>
                         <div class="endpoint-content">
-                            <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, and longest contribution streak.</p>
+                            <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, current streak, profile visitors count, and contribution history data.</p>
                             
                             <div class="parameter">
                                 <code>exclude</code> Optional comma-separated list of languages to exclude
@@ -538,12 +538,16 @@ docs_html_content = """
                             <div class="response">
                                 <h3>Response</h3>
                                 <pre><code class="language-json">{
+    "status": "success",
+    "message": "retrieved",
     "topLanguages": [
         {"name": "Python", "percentage": 45}
     ],
     "totalCommits": 1234,
     "longestStreak": 30,
-    "currentStreak": 15
+    "currentStreak": 15,
+    "profile_visitors": 567,
+    "contributions": { ... }
 }</code></pre>
                             </div>
 
@@ -551,6 +555,49 @@ docs_html_content = """
                                 <h3>Error Responses</h3>
                                 <p><code>404</code> - User not found or API error</p>
                                 <p><code>500</code> - GitHub token configuration error</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="endpoint">
+                        <div class="endpoint-header">
+                            <h2><span class="endpoint-method">GET</span><code class="path">/{username}/profile-views</code> Get and Increment Profile Views</h2>
+                            <span class="endpoint-toggle">+</span>
+                        </div>
+                        <div class="endpoint-content">
+                            <p>Gets the current profile views count for a user and optionally increments it. Similar to the GitHub Profile Views Counter service.</p>
+                            
+                            <div class="parameter">
+                                <code>increment</code> Optional boolean to increment the view count (default: true)
+                            </div>
+                            <div class="parameter">
+                                <code>base</code> Optional base count to set (for migration from other services)
+                            </div>
+
+                            <div class="note">
+                                <h3>Example Request</h3>
+                                <pre><code>GET /tashifkhan/profile-views?increment=true</code></pre>
+                            </div>
+
+                            <div class="response">
+                                <h3>Response</h3>
+                                <pre><code class="language-json">{
+    "username": "tashifkhan",
+    "views": 1234,
+    "incremented": true
+}</code></pre>
+                            </div>
+
+                            <div class="note">
+                                <h3>Usage Examples</h3>
+                                <p><strong>Basic usage (increments count):</strong></p>
+                                <pre><code>GET /tashifkhan/profile-views</code></pre>
+                                
+                                <p><strong>Get count without incrementing:</strong></p>
+                                <pre><code>GET /tashifkhan/profile-views?increment=false</code></pre>
+                                
+                                <p><strong>Set base count for migration:</strong></p>
+                                <pre><code>GET /tashifkhan/profile-views?base=1000</code></pre>
                             </div>
                         </div>
                     </div>
@@ -570,7 +617,7 @@ docs_html_content = """
                             <span class="endpoint-toggle">+</span>
                         </div>
                         <div class="endpoint-content">
-                            <p>Retrieves detailed information for each of the user's public repositories, including README (Base64 encoded), languages, and commit count.</p>
+                            <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, and commit count.</p>
                             
                             <div class="note">
                                 <h3>Example Request</h3>
@@ -605,7 +652,7 @@ docs_html_content = """
                             <span class="endpoint-toggle">+</span>
                         </div>
                         <div class="endpoint-content">
-                            <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp.</p>
+                            <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp (most recent first).</p>
 
                             <div class="note">
                                 <h3>Example Request</h3>

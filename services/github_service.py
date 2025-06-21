@@ -363,3 +363,112 @@ async def get_all_commits_for_repo_async(
         except Exception:
             break
     return commits_data
+
+
+async def get_repo_details(username: str, token: str) -> List[RepoDetail]:
+    """
+    Get detailed information for all public repositories of a user.
+
+    Args:
+        username: GitHub username
+        token: GitHub API token
+
+    Returns:
+        List of repository details
+    """
+    async with httpx.AsyncClient() as client:
+        # Get user's repositories
+        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
+        try:
+            response = await client.get(repos_url, headers=github_headers(token))
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=404, detail="User not found or API error"
+                )
+
+            repos = response.json()
+            if not repos:
+                return []
+
+            # Fetch details for each repository concurrently
+            repo_details_tasks = [
+                fetch_repo_details(client, repo, token) for repo in repos
+            ]
+            repo_details = await asyncio.gather(
+                *repo_details_tasks, return_exceptions=True
+            )
+
+            # Filter out None values and exceptions
+            valid_repo_details = [
+                detail
+                for detail in repo_details
+                if detail is not None and not isinstance(detail, Exception)
+            ]
+
+            return valid_repo_details
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=500, detail="GitHub API error")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching repository details: {str(e)}"
+            )
+
+
+async def get_all_commits(username: str, token: str) -> List[CommitDetail]:
+    """
+    Get all commits made by a user across their owned repositories.
+
+    Args:
+        username: GitHub username
+        token: GitHub API token
+
+    Returns:
+        List of commit details sorted by timestamp (most recent first)
+    """
+    async with httpx.AsyncClient() as client:
+        # Get user's repositories
+        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
+        try:
+            response = await client.get(repos_url, headers=github_headers(token))
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=404, detail="User not found or API error"
+                )
+
+            repos = response.json()
+            if not repos:
+                return []
+
+            # Get commits for each repository concurrently
+            commits_tasks = [
+                get_all_commits_for_repo_async(
+                    client, username, repo["name"], username, token
+                )
+                for repo in repos
+            ]
+            all_commits_lists = await asyncio.gather(
+                *commits_tasks, return_exceptions=True
+            )
+
+            # Flatten and filter out exceptions
+            all_commits = []
+            for commits_list in all_commits_lists:
+                if isinstance(commits_list, list):
+                    all_commits.extend(commits_list)
+
+            # Sort by timestamp (most recent first)
+            all_commits.sort(key=lambda x: x.timestamp or "", reverse=True)
+
+            return all_commits
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=500, detail="GitHub API error")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching commits: {str(e)}"
+            )
