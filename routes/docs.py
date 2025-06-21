@@ -202,7 +202,7 @@ docs_html_content = """
                 }
                 @media (max-width: 768px) {
                     body {
-                        padding: 1rem 0.75rem;
+                        padding: 2rem 1rem;
                     }
                     .section-header {
                         padding: 1.25rem;
@@ -230,10 +230,19 @@ docs_html_content = """
                     code {
                         font-size: 0.8em;
                     }
+                    .stalker-form {
+                        padding: 1.5rem;
+                    }
+                    .profile-section {
+                        padding: 1.5rem;
+                    }
+                    #contribution-chart-container {
+                        height: 30vh;
+                    }
                 }
                 @media (max-width: 480px) {
                     body {
-                        padding: 1rem 0.5rem;
+                        padding: 1.5rem 0.75rem;
                     }
                     .section-header {
                         padding: 1rem;
@@ -248,7 +257,7 @@ docs_html_content = """
                         font-size: 0.9rem;
                     }
                     h1 {
-                        font-size: 1.8rem;
+                        font-size: 1.6rem;
                     }
                     pre {
                         padding: 0.75rem;
@@ -257,6 +266,21 @@ docs_html_content = """
                     .parameter, .error-response, .note {
                         padding: 1rem;
                         margin: 1rem 0;
+                    }
+                    .stalker-form {
+                        padding: 1rem;
+                    }
+                    .profile-section {
+                        padding: 1rem;
+                    }
+                    .profile-card {
+                        padding: 1rem;
+                    }
+                    .card-value {
+                        font-size: 1.8rem;
+                    }
+                    .repo-card {
+                        padding: 1rem;
                     }
                 }
                 .method {
