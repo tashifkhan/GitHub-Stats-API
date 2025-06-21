@@ -359,6 +359,20 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
             for repo in repos:
                 stars_count = repo.get("stargazers_count", 0)
                 if stars_count > 0:  # Only include repositories with stars
+                    homepage_url = repo.get("homepage")
+                    live_url = None
+
+                    if (
+                        homepage_url
+                        and isinstance(homepage_url, str)
+                        and homepage_url.startswith(("http://", "https://"))
+                    ):
+                        live_url = homepage_url
+                    else:
+                        live_url = _extract_url_from_description(
+                            repo.get("description")
+                        )
+
                     repo_detail = {
                         "name": repo["name"],
                         "description": repo.get("description"),
@@ -367,6 +381,7 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
                         "language": repo.get("language"),
                         "created_at": repo.get("created_at"),
                         "updated_at": repo.get("updated_at"),
+                        "homepage": live_url,
                     }
                     repo_details.append(repo_detail)
 
