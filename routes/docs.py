@@ -1826,7 +1826,7 @@ docs_html_content = """
                     displayRecentCommits(commits || []);
                     
                     // Display all repositories
-                    displayAllRepos(repos || []);
+                    displayAllRepos(username, repos || []);
                     
                     results.style.display = 'block';
                 }
@@ -2057,7 +2057,7 @@ docs_html_content = """
                     });
                 }
                 
-                function displayAllRepos(repos) {
+                function displayAllRepos(username, repos) {
                     const container = document.getElementById('all-repos');
                     if (!container) return;
                     
@@ -2073,7 +2073,7 @@ docs_html_content = """
                         repoCard.className = 'repo-card';
                         repoCard.innerHTML = `
                             <div class="repo-header">
-                                <a href="https://github.com/${repo.title}" target="_blank" class="repo-name">${repo.title}</a>
+                                <a href="https://github.com/${username}/${repo.title}" target="_blank" class="repo-name">${repo.title}</a>
                                 <span class="repo-stars">
                                     <svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                                     ${repo.stars || 0}
