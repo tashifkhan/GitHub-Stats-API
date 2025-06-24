@@ -721,6 +721,25 @@ docs_html_content = """
                     gap: 1rem;
                     font-size: 0.9rem;
                     color: var(--text-color);
+                    align-items: center;
+                }
+                .repo-meta .repo-badge {
+                    background: var(--secondary-color);
+                    color: var(--background-color);
+                    font-weight: bold;
+                    border-radius: 6px;
+                    padding: 0.2rem 0.7rem;
+                    font-size: 0.95em;
+                    margin-right: 0.5rem;
+                    letter-spacing: 0.5px;
+                }
+                .repo-meta .date-badge {
+                    background: #233554;
+                    color: var(--secondary-color);
+                    border-radius: 6px;
+                    padding: 0.2rem 0.7rem;
+                    font-size: 0.95em;
+                    margin-right: 0.5rem;
                 }
                 
                 .repo-language {
@@ -969,6 +988,19 @@ docs_html_content = """
                 .input-group input:focus {
                     outline: none;
                     border-color: var(--secondary-color);
+                }
+
+                .repo-description img, .markdown-img {
+                    max-width: 100%;
+                    width: 100%;
+                    height: auto;
+                    object-fit: contain;
+                    max-height: 400px;
+                    display: block;
+                    margin: 1rem auto;
+                    border-radius: 0.5rem;
+                    border: 1px solid #334155;
+                    background: #0a192f;
                 }
             </style>
         </head>
@@ -2159,7 +2191,7 @@ docs_html_content = """
                                     <div class="repo-language-dot" style="background-color: ${getLanguageColor(repo.language)};"></div>
                                     ${repo.language || 'Unknown'}
                                 </span>
-                                <span>Updated ${formatDate(repo.updated_at)}</span>
+                                <span class="date-badge">Updated ${formatDate(repo.updated_at)}</span>
                                 ${repo.homepage ? `<span><a href="${repo.homepage}" target="_blank" style="color: var(--secondary-color);"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Live Site</a></span>` : ''}
                             </div>
                         `;
@@ -2221,7 +2253,7 @@ docs_html_content = """
                                     <div class="repo-language-dot" style="background-color: ${getLanguageColor(repo.languages?.[0])};"></div>
                                     ${repo.languages?.[0] || 'Unknown'}
                                 </span>
-                                <span>${repo.num_commits || 0} commits</span>
+                                <span class="date-badge">${repo.num_commits || 0} commits</span>
                                 ${repo.live_website_url ? `<span><a href="${repo.live_website_url}" target="_blank" style="color: var(--secondary-color);"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Live Site</a></span>` : ''}
                             </div>
                         `;
@@ -2311,9 +2343,9 @@ docs_html_content = """
                             </div>
                             <div class="repo-description">${prBodyHtml}</div>
                             <div class="repo-meta">
-                                <span>Repo: ${pr.repo}</span>
-                                <span>Created: ${formatDate(pr.created_at)}</span>
-                                <span>Updated: ${formatDate(pr.updated_at)}</span>
+                                <span class="repo-badge">Repo: ${pr.repo}</span>
+                                <span class="date-badge">Created: ${formatDate(pr.created_at)}</span>
+                                <span class="date-badge">Updated: ${formatDate(pr.updated_at)}</span>
                             </div>
                         `;
                         container.appendChild(prDiv);
@@ -2376,9 +2408,9 @@ docs_html_content = """
                             </div>
                             <div class="repo-description">${prBodyHtml}</div>
                             <div class="repo-meta">
-                                <span>Repo: ${pr.repo}</span>
-                                <span>Created: ${formatDate(pr.created_at)}</span>
-                                <span>Updated: ${formatDate(pr.updated_at)}</span>
+                                <span class="repo-badge">Repo: ${pr.repo}</span>
+                                <span class="date-badge">Created: ${formatDate(pr.created_at)}</span>
+                                <span class="date-badge">Updated: ${formatDate(pr.updated_at)}</span>
                             </div>
                         `;
                         container.appendChild(prDiv);

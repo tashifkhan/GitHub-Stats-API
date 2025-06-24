@@ -91,7 +91,7 @@ def render_markdown(content, github_base_url=None):
     def img_replacer(match):
         alt, src = match.group(1), match.group(2)
         full_src = convert_relative_url(src, github_base_url)
-        return f'<img src="{full_src}" alt="{alt}" class="max-w-full h-auto rounded-lg border border-gray-700 my-4 mx-auto block" />'
+        return f'<img src="{full_src}" alt="{alt}" class="markdown-img" />'
 
     html = re.sub(r'<img alt="([^"]*)" src="([^"]*)" ?/?>', img_replacer, html)
 
@@ -161,6 +161,8 @@ def render_markdown(content, github_base_url=None):
 
     # Add pygments CSS for code highlighting
     pygments_css = HtmlFormatter(style="monokai").get_style_defs(".highlight")
-    style_block = f"<style>{pygments_css}</style>"
+    # Add custom CSS for markdown images with forced width 200px
+    markdown_img_css = ".markdown-img { width: 200px !important; max-width: 200px !important; height: auto; display: block; object-fit: contain; max-height: 400px; margin: 1rem auto; border-radius: 0.5rem; border: 1px solid #334155; background: #0a192f; }"
+    style_block = f"<style>{pygments_css}\n{markdown_img_css}</style>"
 
     return style_block + html
