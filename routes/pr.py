@@ -19,6 +19,8 @@ from services.github_service import (
     calculate_total_commits,
     calculate_longest_streak,
     calculate_current_streak,
+    get_user_pull_requests,
+    get_organization_contributions,
 )
 
 
