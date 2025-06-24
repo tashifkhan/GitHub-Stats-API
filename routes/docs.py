@@ -1367,6 +1367,118 @@ docs_html_content = """
                     </div>
                 </div>
 
+                <div class="api-section">
+                    <div class="section-header">
+                        <h2>Pull Request & Organization Endpoints</h2>
+                        <span class="section-toggle">&#9660;</span>
+                    </div>
+                    <div class="section-content">
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/me/pulls</code> Get User's Pull Requests (Own Repos)</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Returns all pull requests created by the user in their own repositories, including their status (merged, closed, or open).</p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/me/pulls</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
+    {
+        "repo": "RepoName",
+        "number": 123,
+        "title": "Fix bug in feature X",
+        "state": "merged",
+        "created_at": "2023-01-01T12:00:00Z",
+        "updated_at": "2023-01-02T12:00:00Z",
+        "closed_at": "2023-01-02T12:00:00Z",
+        "merged_at": "2023-01-02T12:00:00Z",
+        "user": "tashifkhan",
+        "url": "https://github.com/tashifkhan/RepoName/pull/123",
+        "body": "This PR fixes ..."
+    }
+]</code></pre>
+                                </div>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/org-contributions</code> Get Organizations Contributed To</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Returns all organizations where the user has contributed (via merged PRs), and the repositories they contributed to.</p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/org-contributions</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
+    {
+        "org": "openai",
+        "org_id": 123456,
+        "org_url": "https://github.com/openai",
+        "org_avatar_url": "https://avatars.githubusercontent.com/u/123456?v=4",
+        "repos": ["repo1", "repo2"]
+    }
+]</code></pre>
+                                </div>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="endpoint">
+                            <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/prs</code> Get PRs Opened in Other People's Repos</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Returns all pull requests opened by the user in other people's repositories (not their own), including their status (merged, closed, or open).</p>
+                                <div class="note">
+                                    <h3>Example Request</h3>
+                                    <pre><code>GET /tashifkhan/prs</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
+    {
+        "repo": "OtherRepo",
+        "number": 456,
+        "title": "Add new feature",
+        "state": "closed",
+        "created_at": "2023-02-01T10:00:00Z",
+        "updated_at": "2023-02-02T10:00:00Z",
+        "closed_at": "2023-02-02T10:00:00Z",
+        "merged_at": null,
+        "user": "tashifkhan",
+        "url": "https://github.com/otheruser/OtherRepo/pull/456",
+        "body": "Implements ..."
+    }
+]</code></pre>
+                                </div>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
                 <!-- Dashboard Details Section -->
                 <div class="api-section">
                     <div class="section-header">
@@ -1523,7 +1635,6 @@ docs_html_content = """
                         </div>
                     </div>
                 </div>
-            </div>
 
             <footer>
                 <p>GitHub Analytics API live at <a href="https://github-stats.tashif.codes" style="color: var(--secondary-color); text-decoration: none;">github-stats.tashif.codes</a></p>
