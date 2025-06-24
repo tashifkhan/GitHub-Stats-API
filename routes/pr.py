@@ -35,40 +35,40 @@ async def get_github_token() -> str:
 pr_router = APIRouter()
 
 
-@pr_router.get("/{username}/stats", tags=["User Analytics"])
-async def get_user_stats_route(
-    username: str = Path(..., description="GitHub username"),
-    exclude: Optional[str] = Query(
-        None, description="Comma-separated list of languages to exclude"
-    ),
-    token: str = Depends(get_github_token),
-):
-    excluded_list = (
-        [lang.strip() for lang in exclude.split(",")]
-        if exclude
-        else ["Markdown", "JSON", "YAML", "XML"]
-    )
+# @pr_router.get("/{username}/stats", tags=["User Analytics"])
+# async def get_user_stats_route(
+#     username: str = Path(..., description="GitHub username"),
+#     exclude: Optional[str] = Query(
+#         None, description="Comma-separated list of languages to exclude"
+#     ),
+#     token: str = Depends(get_github_token),
+# ):
+#     excluded_list = (
+#         [lang.strip() for lang in exclude.split(",")]
+#         if exclude
+#         else ["Markdown", "JSON", "YAML", "XML"]
+#     )
 
-    contribution_data = await get_contribution_graphs(username, token)
-    if not contribution_data or not contribution_data.get(
-        list(contribution_data.keys())[0] if contribution_data else None, {}
-    ).get("data", {}).get("user"):
-        raise HTTPException(
-            status_code=404, detail="User not found or API error fetching contributions"
-        )
+#     contribution_data = await get_contribution_graphs(username, token)
+#     if not contribution_data or not contribution_data.get(
+#         list(contribution_data.keys())[0] if contribution_data else None, {}
+#     ).get("data", {}).get("user"):
+#         raise HTTPException(
+#             status_code=404, detail="User not found or API error fetching contributions"
+#         )
 
-    language_stats_data = await get_language_stats(username, token, excluded_list)
+#     language_stats_data = await get_language_stats(username, token, excluded_list)
 
-    total_commits = calculate_total_commits(contribution_data)
-    longest_streak = calculate_longest_streak(contribution_data)
-    current_streak = calculate_current_streak(contribution_data)
+#     total_commits = calculate_total_commits(contribution_data)
+#     longest_streak = calculate_longest_streak(contribution_data)
+#     current_streak = calculate_current_streak(contribution_data)
 
-    return {
-        "topLanguages": language_stats_data,
-        "totalCommits": total_commits,
-        "longestStreak": longest_streak,
-        "currentStreak": current_streak,
-    }
+#     return {
+#         "topLanguages": language_stats_data,
+#         "totalCommits": total_commits,
+#         "longestStreak": longest_streak,
+#         "currentStreak": current_streak,
+#     }
 
 
 @pr_router.get(
