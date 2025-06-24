@@ -1,5 +1,6 @@
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from utils.md_html_convertor import render_markdown
 
 docs_router = APIRouter()
 
@@ -2278,20 +2279,37 @@ docs_html_content = """
                 function displayUserPullRequests(pulls) {
                     const container = document.getElementById('user-pulls');
                     if (!container) return;
-                    container.innerHTML = '<h3>Pull Requests in Own Repositories</h3>';
+                    container.innerHTML = '<h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7v4H5V7H3v10h2v-4h14v4h2V7h-2zm0-2c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2h14zm-7 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg> Pull Requests in Own Repositories</h3>';
                     if (!pulls || pulls.length === 0) {
                         container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No pull requests found in own repositories.</p>';
                         return;
                     }
-                    pulls.slice(0, 10).forEach(pr => {
+                    pulls.slice(0, 10).forEach(async pr => {
                         const prDiv = document.createElement('div');
                         prDiv.className = 'repo-card';
+                        let prBodyHtml = 'No description available';
+                        if (pr.body) {
+                            try {
+                                const resp = await fetch('/render-markdown', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ markdown: pr.body })
+                                });
+                                if (resp.ok) {
+                                    prBodyHtml = (await resp.json()).html;
+                                } else {
+                                    prBodyHtml = pr.body;
+                                }
+                            } catch (e) {
+                                prBodyHtml = pr.body;
+                            }
+                        }
                         prDiv.innerHTML = `
                             <div class="repo-header">
                                 <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
                                 <span class="repo-stars">${pr.state.toUpperCase()}</span>
                             </div>
-                            <div class="repo-description">${pr.body || 'No description available'}</div>
+                            <div class="repo-description">${prBodyHtml}</div>
                             <div class="repo-meta">
                                 <span>Repo: ${pr.repo}</span>
                                 <span>Created: ${formatDate(pr.created_at)}</span>
@@ -2326,20 +2344,37 @@ docs_html_content = """
                 function displayExternalPullRequests(prs) {
                     const container = document.getElementById('external-prs');
                     if (!container) return;
-                    container.innerHTML = '<h3>Pull Requests in Other People Repositories</h3>';
+                    container.innerHTML = '<h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v-2c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2zm-2 8H6V7h8v10zm2-4h2v2h-2v-2zm0-4h2v2h-2V9z"/></svg> Pull Requests in Other People Repositories</h3>';
                     if (!prs || prs.length === 0) {
                         container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No external pull requests found.</p>';
                         return;
                     }
-                    prs.slice(0, 10).forEach(pr => {
+                    prs.slice(0, 10).forEach(async pr => {
                         const prDiv = document.createElement('div');
                         prDiv.className = 'repo-card';
+                        let prBodyHtml = 'No description available';
+                        if (pr.body) {
+                            try {
+                                const resp = await fetch('/render-markdown', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ markdown: pr.body })
+                                });
+                                if (resp.ok) {
+                                    prBodyHtml = (await resp.json()).html;
+                                } else {
+                                    prBodyHtml = pr.body;
+                                }
+                            } catch (e) {
+                                prBodyHtml = pr.body;
+                            }
+                        }
                         prDiv.innerHTML = `
                             <div class="repo-header">
                                 <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
                                 <span class="repo-stars">${pr.state.toUpperCase()}</span>
                             </div>
-                            <div class="repo-description">${pr.body || 'No description available'}</div>
+                            <div class="repo-description">${prBodyHtml}</div>
                             <div class="repo-meta">
                                 <span>Repo: ${pr.repo}</span>
                                 <span>Created: ${formatDate(pr.created_at)}</span>
@@ -2361,3 +2396,11 @@ async def get_custom_documentation():
     Serves the custom HTML API documentation page.
     """
     return HTMLResponse(content=docs_html_content)
+
+
+@docs_router.post("/render-markdown")
+async def render_markdown_api(request: Request):
+    data = await request.json()
+    markdown_text = data.get("markdown", "")
+    html = render_markdown(markdown_text)
+    return JSONResponse({"html": html})
