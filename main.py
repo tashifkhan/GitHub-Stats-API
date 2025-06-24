@@ -40,12 +40,14 @@ from routes import (
     analytics_router,
     dashboard_router,
     docs_router,
+    pr_router,
     # api_router,
 )
 
 app.include_router(docs_router, tags=["Documentation"])
 app.include_router(analytics_router, tags=["Analytics"])
 app.include_router(dashboard_router, tags=["Dashboard"])
+app.include_router(pr_router, tags=["PRs"])
 # app.include_router(api_router, tags=["API"])
 
 if __name__ == "__main__":
