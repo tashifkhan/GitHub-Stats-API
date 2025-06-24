@@ -1089,6 +1089,19 @@ docs_html_content = """
                     <div id="recent-commits" class="commits-list"></div>
                 </div>
 
+                <!-- PRs and Org Contributions (NEW: moved here) -->
+                <div class="profile-section">
+                    <div id="user-pulls">
+                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7v4H5V7H3v10h2v-4h14v4h2V7h-2zm0-2c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2h14zm-7 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg> Pull Requests in Own Repositories</h3>
+                    </div>
+                    <div id="org-contributions">
+                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6 0 2.22 1.21 4.15 3 5.19V17h6v-1.81c1.79-1.04 3-2.97 3-5.19 0-3.31-2.69-6-6-6z"/></svg> Organizations Contributed To</h3>
+                    </div>
+                    <div id="external-prs">
+                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v-2c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2zm-2 8H6V7h8v10zm2-4h2v2h-2v-2zm0-4h2v2h-2V9z"/></svg> Pull Requests in Other People's Repositories</h3>
+                    </div>
+                </div>
+
                 <!-- All Repositories -->
                 <div class="profile-section">
                     <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg> All Repositories</h3>
@@ -1872,20 +1885,31 @@ docs_html_content = """
                     
                     try {
                         // Fetch all data in parallel
-                        const [statsResponse, reposResponse, starsResponse, commitsResponse] = await Promise.all([
+                        const [statsResponse, reposResponse, starsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
                             fetch(`/${username}/stats`),
                             fetch(`/${username}/repos`),
                             fetch(`/${username}/stars`),
-                            fetch(`/${username}/commits`)
+                            fetch(`/${username}/commits`),
+                            fetch(`/${username}/me/pulls`),
+                            fetch(`/${username}/org-contributions`),
+                            fetch(`/${username}/prs`)
                         ]);
                         
                         const stats = await statsResponse.json();
                         const repos = await reposResponse.json();
                         const stars = await starsResponse.json();
                         const commits = await commitsResponse.json();
+                        const pulls = await pullsResponse.json();
+                        const orgContribs = await orgContribResponse.json();
+                        const externalPrs = await externalPrsResponse.json();
                         
                         // Display results
                         displayProfileResults(username, stats, repos, stars, commits);
+                        
+                        // Display user pull requests
+                        displayUserPullRequests(pulls);
+                        displayOrgContributions(orgContribs);
+                        displayExternalPullRequests(externalPrs);
                         
                     } catch (error) {
                         console.error('Error fetching data:', error);
@@ -2248,6 +2272,82 @@ docs_html_content = """
                     }
                     results.innerHTML = `<div class="error-message">${message}</div>`;
                     results.style.display = 'block';
+                }
+
+                // Add these functions:
+                function displayUserPullRequests(pulls) {
+                    const container = document.getElementById('user-pulls');
+                    if (!container) return;
+                    container.innerHTML = '<h3>Pull Requests in Own Repositories</h3>';
+                    if (!pulls || pulls.length === 0) {
+                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No pull requests found in own repositories.</p>';
+                        return;
+                    }
+                    pulls.slice(0, 10).forEach(pr => {
+                        const prDiv = document.createElement('div');
+                        prDiv.className = 'repo-card';
+                        prDiv.innerHTML = `
+                            <div class="repo-header">
+                                <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
+                                <span class="repo-stars">${pr.state.toUpperCase()}</span>
+                            </div>
+                            <div class="repo-description">${pr.body || 'No description available'}</div>
+                            <div class="repo-meta">
+                                <span>Repo: ${pr.repo}</span>
+                                <span>Created: ${formatDate(pr.created_at)}</span>
+                                <span>Updated: ${formatDate(pr.updated_at)}</span>
+                            </div>
+                        `;
+                        container.appendChild(prDiv);
+                    });
+                }
+
+                function displayOrgContributions(orgContribs) {
+                    const container = document.getElementById('org-contributions');
+                    if (!container) return;
+                    container.innerHTML = '<h3>Organizations Contributed To</h3>';
+                    if (!orgContribs || orgContribs.length === 0) {
+                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No organization contributions found.</p>';
+                        return;
+                    }
+                    orgContribs.forEach(org => {
+                        const orgDiv = document.createElement('div');
+                        orgDiv.className = 'repo-card';
+                        orgDiv.innerHTML = `
+                            <div class="repo-header">
+                                <a href="${org.org_url}" target="_blank" class="repo-name">${org.org}</a>
+                            </div>
+                            <div class="repo-description">Repos contributed to: ${org.repos.join(', ')}</div>
+                        `;
+                        container.appendChild(orgDiv);
+                    });
+                }
+
+                function displayExternalPullRequests(prs) {
+                    const container = document.getElementById('external-prs');
+                    if (!container) return;
+                    container.innerHTML = '<h3>Pull Requests in Other People Repositories</h3>';
+                    if (!prs || prs.length === 0) {
+                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No external pull requests found.</p>';
+                        return;
+                    }
+                    prs.slice(0, 10).forEach(pr => {
+                        const prDiv = document.createElement('div');
+                        prDiv.className = 'repo-card';
+                        prDiv.innerHTML = `
+                            <div class="repo-header">
+                                <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
+                                <span class="repo-stars">${pr.state.toUpperCase()}</span>
+                            </div>
+                            <div class="repo-description">${pr.body || 'No description available'}</div>
+                            <div class="repo-meta">
+                                <span>Repo: ${pr.repo}</span>
+                                <span>Created: ${formatDate(pr.created_at)}</span>
+                                <span>Updated: ${formatDate(pr.updated_at)}</span>
+                            </div>
+                        `;
+                        container.appendChild(prDiv);
+                    });
                 }
             </script>
         </body>
