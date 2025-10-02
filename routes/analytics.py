@@ -472,7 +472,10 @@ async def get_user_stats(
                         {
                             "name": "Machine Learning",
                             "url": "https://github.com/stars/username/lists/machine-learning",
-                            "repositories": ["pytorch/pytorch", "scikit-learn/scikit-learn"],
+                            "repositories": [
+                                "pytorch/pytorch",
+                                "scikit-learn/scikit-learn",
+                            ],
                         }
                     ]
                 }

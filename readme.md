@@ -78,11 +78,11 @@ Example:
 
 ```json
 [
-    {
-        "name": "AI Projects",
-        "url": "https://github.com/stars/username/lists/ai-projects",
-        "repositories": ["pytorch/pytorch", "huggingface/transformers"]
-    }
+	{
+		"name": "AI Projects",
+		"url": "https://github.com/stars/username/lists/ai-projects",
+		"repositories": ["pytorch/pytorch", "huggingface/transformers"]
+	}
 ]
 ```
 

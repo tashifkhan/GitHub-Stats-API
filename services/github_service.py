@@ -478,8 +478,8 @@ async def get_repo_details(username: str, token: str) -> List[RepoDetail]:
             )
 
             # Filter out None values and exceptions
-            valid_repo_details = [
-                detail
+            valid_repo_details: List[RepoDetail] = [
+                cast(RepoDetail, detail)
                 for detail in repo_details
                 if detail is not None and not isinstance(detail, Exception)
             ]
@@ -745,7 +745,9 @@ async def fetch_repos_from_star_list(list_url: str) -> List[str]:
         return sorted(set(repos))
 
 
-async def get_user_starred_lists(username: str, include_repos: bool = False) -> List[StarredList]:
+async def get_user_starred_lists(
+    username: str, include_repos: bool = False
+) -> List[StarredList]:
     """Public helper to get a user's starred lists optionally with repos."""
     lists = await fetch_star_lists(username)
     if include_repos and lists:
@@ -761,4 +763,3 @@ async def get_user_starred_lists(username: str, include_repos: bool = False) -> 
         tasks = [enrich(lst) for lst in lists]
         lists = cast(List[StarredList], await asyncio.gather(*tasks))
     return lists
-
