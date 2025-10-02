@@ -1,6 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, Path
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import HTTPException
 from typing import List, Dict, Optional
 from modules.github import *
 from datetime import datetime
@@ -13,6 +11,13 @@ from typing import cast
 BASE_GITHUB_URL = "https://github.com"
 
 GITHUB_API = "https://api.github.com"
+
+STAR_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
 
 async def execute_graphql_query(query: str, token: str) -> Dict:
@@ -695,78 +700,147 @@ async def get_organization_contributions(
 
 
 # ---------------- Starred Lists (HTML Scraping) -----------------
-STAR_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-}
 
 
 async def fetch_star_lists(username: str) -> List[StarredList]:
     """Fetch all starred lists for a GitHub user (HTML scrape)."""
-    url = f"{BASE_GITHUB_URL}/stars/{username}"
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
-        resp = await client.get(url, headers=STAR_HEADERS)
+
+    url = f"{BASE_GITHUB_URL}/{username}?tab=stars"
+
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=15.0,
+    ) as client:
+
+        resp = await client.get(
+            url,
+            headers=STAR_HEADERS,
+        )
+
         if resp.status_code != 200:
             raise HTTPException(
                 status_code=resp.status_code,
                 detail=f"Failed to fetch starred lists page: {resp.status_code}",
             )
+
         soup = BeautifulSoup(resp.text, "html.parser")
+
         star_lists: List[StarredList] = []
-        # Sidebar lists block: anchor href format /stars/{username}/lists/{list_slug}
-        for item in soup.select("div[jscontroller] ul li a"):
+
+        container = soup.find(id="profile-lists-container")
+
+        anchors = []
+        if container:
+            anchors = container.find_all("a", href=True)
+
+        if not anchors:
+            anchors = soup.select("div[jscontroller] ul li a")
+
+        for item in anchors:
             href_attr = item.get("href")
             if not href_attr:
                 continue
+
             href = href_attr if isinstance(href_attr, str) else str(href_attr)
-            if href.startswith(f"/stars/{username}/lists/"):
-                list_name = item.get_text(strip=True)
-                list_url = BASE_GITHUB_URL + href
-                star_lists.append(StarredList(name=list_name, url=list_url))
+            if not href.startswith(f"/stars/{username}/lists/"):
+                continue
+
+            list_url = BASE_GITHUB_URL + href
+            name_tag = item.find("h3")
+            list_name = (
+                name_tag.get_text(strip=True)
+                if name_tag and name_tag.get_text(strip=True)
+                else item.get_text(strip=True)
+            )
+            if not list_name:
+                continue
+
+            desc_tag = item.select_one(".Truncate-text")
+            description = None
+            if desc_tag:
+                raw_desc = desc_tag.get_text(" ", strip=True)
+                description = raw_desc if raw_desc else None
+
+            num_repos = None
+            count_container = item.find(
+                string=lambda t: isinstance(t, str) and "repositories" in t
+            )
+            if count_container:
+                import re as _re
+
+                m = _re.search(r"(\d+)", count_container)
+                if m:
+                    try:
+                        num_repos = int(m.group(1))
+                    except ValueError:
+                        num_repos = None
+
+            star_lists.append(
+                StarredList(
+                    name=list_name,
+                    url=list_url,
+                    description=description,
+                    num_repos=num_repos,
+                )
+            )
         return star_lists
 
 
 async def fetch_repos_from_star_list(list_url: str) -> List[str]:
     """Fetch repositories inside a starred list (HTML scrape)."""
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
-        resp = await client.get(list_url, headers=STAR_HEADERS)
+
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=15.0,
+    ) as client:
+
+        resp = await client.get(
+            list_url,
+            headers=STAR_HEADERS,
+        )
+
         if resp.status_code != 200:
             raise HTTPException(
                 status_code=resp.status_code,
                 detail=f"Failed to fetch list page: {resp.status_code}",
             )
+
         soup = BeautifulSoup(resp.text, "html.parser")
         repos: List[str] = []
-        # Repository cards: anchor in h3 referencing /owner/repo
+
         for repo in soup.select("h3 a[href^='/']"):
             href_attr = repo.get("href")
             if href_attr is None:
                 continue
+
             href_str = href_attr if isinstance(href_attr, str) else str(href_attr)
             link = href_str.strip("/")
+
             if "/" in link and not link.endswith("stargazers"):
                 repos.append(link)
-        # dedupe
+
         return sorted(set(repos))
 
 
 async def get_user_starred_lists(
-    username: str, include_repos: bool = False
+    username: str,
+    include_repos: bool = False,
 ) -> List[StarredList]:
     """Public helper to get a user's starred lists optionally with repos."""
     lists = await fetch_star_lists(username)
     if include_repos and lists:
-        # fetch list repos concurrently
+
         async def enrich(star_list: StarredList) -> StarredList:
             try:
                 repos = await fetch_repos_from_star_list(star_list.url)
                 star_list.repositories = repos
+
             except HTTPException:
                 star_list.repositories = []
+
             return star_list
 
         tasks = [enrich(lst) for lst in lists]
         lists = cast(List[StarredList], await asyncio.gather(*tasks))
+
     return lists
