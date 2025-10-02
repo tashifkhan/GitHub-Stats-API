@@ -33,3 +33,5 @@ profile_views.json
 
 # macOS
 .DS_Store
+
+tmp/
