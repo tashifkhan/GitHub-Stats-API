@@ -717,7 +717,10 @@ async def fetch_star_lists(username: str) -> List[StarredList]:
         star_lists: List[StarredList] = []
         # Sidebar lists block: anchor href format /stars/{username}/lists/{list_slug}
         for item in soup.select("div[jscontroller] ul li a"):
-            href = item.get("href", "")
+            href_attr = item.get("href")
+            if not href_attr:
+                continue
+            href = href_attr if isinstance(href_attr, str) else str(href_attr)
             if href.startswith(f"/stars/{username}/lists/"):
                 list_name = item.get_text(strip=True)
                 list_url = BASE_GITHUB_URL + href
@@ -738,7 +741,11 @@ async def fetch_repos_from_star_list(list_url: str) -> List[str]:
         repos: List[str] = []
         # Repository cards: anchor in h3 referencing /owner/repo
         for repo in soup.select("h3 a[href^='/']"):
-            link = repo.get("href", "").strip("/")
+            href_attr = repo.get("href")
+            if href_attr is None:
+                continue
+            href_str = href_attr if isinstance(href_attr, str) else str(href_attr)
+            link = href_str.strip("/")
             if "/" in link and not link.endswith("stargazers"):
                 repos.append(link)
         # dedupe
