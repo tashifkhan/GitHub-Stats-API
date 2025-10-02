@@ -68,6 +68,24 @@ Fetches comprehensive statistics for a user, including language stats, contribut
 
 `GET /{username}/stars`
 
+### Get Starred Lists
+
+`GET /{username}/star-lists`
+
+Optional: `?include_repos=true` to also include the repositories inside each curated list.
+
+Example:
+
+```json
+[
+    {
+        "name": "AI Projects",
+        "url": "https://github.com/stars/username/lists/ai-projects",
+        "repositories": ["pytorch/pytorch", "huggingface/transformers"]
+    }
+]
+```
+
 ### Get Commit History
 
 `GET /{username}/commits`

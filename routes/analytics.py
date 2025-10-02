@@ -452,3 +452,47 @@ async def get_user_stats(
         contributions=contribution_data,
     )
     return response
+
+
+@analytics_router.get(
+    "/{username}/star-lists",
+    tags=["User Analytics"],
+    summary="Get User's Starred Lists",
+    description="""
+    Retrieves the public 'Starred Lists' a user has created on GitHub (curated groups of starred repositories).
+
+    Optional query parameter `include_repos=true` will also scrape and include the repository slugs (owner/repo) contained in each list.
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved starred lists",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "name": "Machine Learning",
+                            "url": "https://github.com/stars/username/lists/machine-learning",
+                            "repositories": ["pytorch/pytorch", "scikit-learn/scikit-learn"],
+                        }
+                    ]
+                }
+            },
+        },
+        404: {"description": "User or lists not found"},
+    },
+)
+async def get_user_star_lists(
+    username: str = Path(..., description="GitHub username"),
+    include_repos: bool = Query(
+        False, description="Whether to also fetch repositories within each list"
+    ),
+):
+    try:
+        lists = await get_user_starred_lists(username, include_repos)
+        if not lists:
+            return []
+        return [l.model_dump() for l in lists]
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="User not found or API error")
+        raise e

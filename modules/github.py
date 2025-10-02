@@ -101,3 +101,11 @@ class OrganizationContribution(BaseModel):
     org_url: str
     org_avatar_url: str
     repos: List[str]
+
+
+class StarredList(BaseModel):
+    """Represents a user's GitHub starred list (a curated list of starred repos)."""
+    name: str
+    url: str
+    repositories: Optional[List[str]] = None
+

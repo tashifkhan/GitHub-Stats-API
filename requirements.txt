@@ -26,3 +26,4 @@ typing-extensions==4.12.2
 urllib3==2.3.0
 uvicorn==0.24.0
 wrapt==1.17.2
+beautifulsoup4==4.12.3

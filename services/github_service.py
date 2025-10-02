@@ -7,6 +7,10 @@ from datetime import datetime
 import httpx
 import asyncio
 import re
+from bs4 import BeautifulSoup
+from typing import cast
+
+BASE_GITHUB_URL = "https://github.com"
 
 GITHUB_API = "https://api.github.com"
 
@@ -688,3 +692,73 @@ async def get_organization_contributions(
                 )
             )
         return org_contributions
+
+
+# ---------------- Starred Lists (HTML Scraping) -----------------
+STAR_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+
+async def fetch_star_lists(username: str) -> List[StarredList]:
+    """Fetch all starred lists for a GitHub user (HTML scrape)."""
+    url = f"{BASE_GITHUB_URL}/stars/{username}"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+        resp = await client.get(url, headers=STAR_HEADERS)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Failed to fetch starred lists page: {resp.status_code}",
+            )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        star_lists: List[StarredList] = []
+        # Sidebar lists block: anchor href format /stars/{username}/lists/{list_slug}
+        for item in soup.select("div[jscontroller] ul li a"):
+            href = item.get("href", "")
+            if href.startswith(f"/stars/{username}/lists/"):
+                list_name = item.get_text(strip=True)
+                list_url = BASE_GITHUB_URL + href
+                star_lists.append(StarredList(name=list_name, url=list_url))
+        return star_lists
+
+
+async def fetch_repos_from_star_list(list_url: str) -> List[str]:
+    """Fetch repositories inside a starred list (HTML scrape)."""
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+        resp = await client.get(list_url, headers=STAR_HEADERS)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Failed to fetch list page: {resp.status_code}",
+            )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        repos: List[str] = []
+        # Repository cards: anchor in h3 referencing /owner/repo
+        for repo in soup.select("h3 a[href^='/']"):
+            link = repo.get("href", "").strip("/")
+            if "/" in link and not link.endswith("stargazers"):
+                repos.append(link)
+        # dedupe
+        return sorted(set(repos))
+
+
+async def get_user_starred_lists(username: str, include_repos: bool = False) -> List[StarredList]:
+    """Public helper to get a user's starred lists optionally with repos."""
+    lists = await fetch_star_lists(username)
+    if include_repos and lists:
+        # fetch list repos concurrently
+        async def enrich(star_list: StarredList) -> StarredList:
+            try:
+                repos = await fetch_repos_from_star_list(star_list.url)
+                star_list.repositories = repos
+            except HTTPException:
+                star_list.repositories = []
+            return star_list
+
+        tasks = [enrich(lst) for lst in lists]
+        lists = cast(List[StarredList], await asyncio.gather(*tasks))
+    return lists
+
