@@ -2046,7 +2046,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                 }
 
                 function displayStarLists(lists) {
-                    let container = document.getElementById('star-lists');
+                    const container = document.getElementById('star-lists');
                     if (!container) return;
                     container.innerHTML = '';
                     if (!Array.isArray(lists) || lists.length === 0) {
@@ -2056,13 +2056,19 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     lists.forEach(lst => {
                         const div = document.createElement('div');
                         div.className = 'repo-card';
-                        const repoCount = (lst.repositories && lst.repositories.length) || 0;
+                        const repoCount = typeof lst.num_repos === 'number'
+                            ? lst.num_repos
+                            : (Array.isArray(lst.repositories) ? lst.repositories.length : 0);
+                        const reposPreview = Array.isArray(lst.repositories) && lst.repositories.length
+                            ? `<div class=\"repo-description\" style=\"font-size:0.7rem; line-height:1.3; max-height:100px; overflow:auto; margin-top:0.35rem;\">${lst.repositories.slice(0,25).map(r=>`<code>${r}</code>`).join(' ')}</div>`
+                            : '';
                         div.innerHTML = `
-                            <h4 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
-                                <a href="${lst.url}" target="_blank" style="color: var(--secondary-color); text-decoration:none;">${lst.name}</a>
-                                <span class="repo-stars" title="Repositories in list">${repoCount}</span>
+                            <h4 style=\"margin:0 0 0.4rem 0; display:flex; justify-content:space-between; align-items:center; gap:.5rem;\">
+                                <a href=\"${lst.url}\" target=\"_blank\" style=\"color: var(--secondary-color); text-decoration:none; flex:1;\">${lst.name}</a>
+                                <span class=\"repo-stars\" title=\"Repositories in list\">${repoCount}</span>
                             </h4>
-                            ${repoCount ? `<div class="repo-description" style="font-size:0.85rem; line-height:1.4; max-height:120px; overflow:auto;">${lst.repositories.slice(0,25).map(r=>`<code>${r}</code>`).join(' ')}</div>` : '<p style="font-size:0.8rem; opacity:0.7;">Empty list</p>'}
+                            ${lst.description ? `<p style=\"margin:0 0 .35rem 0; font-size:.75rem; color:var(--text-color);\">${lst.description}</p>` : ''}
+                            ${reposPreview || (repoCount === 0 ? '<p style=\"font-size:0.65rem; opacity:0.6; margin:0;\">No repositories yet</p>' : '')}
                         `;
                         container.appendChild(div);
                     });
