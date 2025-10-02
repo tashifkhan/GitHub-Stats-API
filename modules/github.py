@@ -109,3 +109,5 @@ class StarredList(BaseModel):
     name: str
     url: str
     repositories: Optional[List[str]] = None
+    description: Optional[str] = None
+    num_repos: Optional[int] = None
