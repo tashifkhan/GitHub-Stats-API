@@ -1116,6 +1116,12 @@ docs_html_content = """
                     <div id="top-repos" class="repos-grid"></div>
                 </div>
 
+                <!-- Starred Lists -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg> Starred Lists</h3>
+                    <div id="star-lists" class="repos-grid"></div>
+                </div>
+
                 <!-- Recent Commits -->
                 <div class="profile-section">
                     <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> Recent Commits</h3>
@@ -1609,6 +1615,41 @@ docs_html_content = """
 
                         <div class="endpoint">
                             <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/star-lists</code> Get User's Starred Lists</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Retrieves the public <em>Starred Lists</em> a user has created (curated groups of their starred repositories). Optionally include the repositories within each list via <code>?include_repos=true</code>.</p>
+                                <div class="parameter">
+                                    <code>include_repos</code> <strong>(query, optional)</strong> - When <code>true</code>, also returns an array of repository slugs (owner/repo) in each list.
+                                </div>
+                                <div class="note">
+                                    <h3>Example Requests</h3>
+                                    <pre><code>GET /tashifkhan/star-lists
+GET /tashifkhan/star-lists?include_repos=true</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response (with include_repos=true)</h3>
+                                    <pre><code class="language-json">[
+  {
+    "name": "AI Projects",
+    "url": "https://github.com/stars/username/lists/ai-projects",
+    "repositories": [
+      "pytorch/pytorch",
+      "huggingface/transformers"
+    ]
+  }
+]</code></pre>
+                                </div>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or lists unavailable</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="endpoint">
+                            <div class="endpoint-header">
                                 <h2><span class="endpoint-method">GET</span><code class="path">/{username}/commits</code> Get User's Commit History Across All Repositories</h2>
                                 <span class="endpoint-toggle">+</span>
                             </div>
@@ -1918,10 +1959,11 @@ docs_html_content = """
                     
                     try {
                         // Fetch all data in parallel
-                        const [statsResponse, reposResponse, starsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
+                        const [statsResponse, reposResponse, starsResponse, starListsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
                             fetch(`/${username}/stats`),
                             fetch(`/${username}/repos`),
                             fetch(`/${username}/stars`),
+                            fetch(`/${username}/star-lists?include_repos=true`),
                             fetch(`/${username}/commits`),
                             fetch(`/${username}/me/pulls`),
                             fetch(`/${username}/org-contributions`),
@@ -1931,13 +1973,14 @@ docs_html_content = """
                         const stats = await statsResponse.json();
                         const repos = await reposResponse.json();
                         const stars = await starsResponse.json();
+                        const starLists = await starListsResponse.json();
                         const commits = await commitsResponse.json();
                         const pulls = await pullsResponse.json();
                         const orgContribs = await orgContribResponse.json();
                         const externalPrs = await externalPrsResponse.json();
                         
                         // Display results
-                        displayProfileResults(username, stats, repos, stars, commits);
+                        displayProfileResults(username, stats, repos, stars, starLists, commits);
                         
                         // Display user pull requests
                         displayUserPullRequests(pulls);
@@ -1954,7 +1997,7 @@ docs_html_content = """
                     }
                 }
                 
-                function displayProfileResults(username, stats, repos, stars, commits) {
+                function displayProfileResults(username, stats, repos, stars, starLists, commits) {
                     const results = document.getElementById('profile-results');
                     
                     // Update profile overview cards with null checks
@@ -1990,6 +2033,9 @@ docs_html_content = """
                     // Display top repositories
                     displayTopRepos(stars.repositories || []);
                     
+                    // Display starred lists
+                    displayStarLists(starLists || []);
+
                     // Display recent commits
                     displayRecentCommits(commits || []);
                     
@@ -1997,6 +2043,29 @@ docs_html_content = """
                     displayAllRepos(username, repos || []);
                     
                     results.style.display = 'block';
+                }
+
+                function displayStarLists(lists) {
+                    let container = document.getElementById('star-lists');
+                    if (!container) return;
+                    container.innerHTML = '';
+                    if (!Array.isArray(lists) || lists.length === 0) {
+                        container.innerHTML = '<p style="color: var(--text-color);">No starred lists found.</p>';
+                        return;
+                    }
+                    lists.forEach(lst => {
+                        const div = document.createElement('div');
+                        div.className = 'repo-card';
+                        const repoCount = (lst.repositories && lst.repositories.length) || 0;
+                        div.innerHTML = `
+                            <h4 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
+                                <a href="${lst.url}" target="_blank" style="color: var(--secondary-color); text-decoration:none;">${lst.name}</a>
+                                <span class="repo-stars" title="Repositories in list">${repoCount}</span>
+                            </h4>
+                            ${repoCount ? `<div class="repo-description" style="font-size:0.85rem; line-height:1.4; max-height:120px; overflow:auto;">${lst.repositories.slice(0,25).map(r=>`<code>${r}</code>`).join(' ')}</div>` : '<p style="font-size:0.8rem; opacity:0.7;">Empty list</p>'}
+                        `;
+                        container.appendChild(div);
+                    });
                 }
                 
                 function displayLanguages(languages) {
