@@ -114,7 +114,7 @@ async def get_user_contributions(
 
 @analytics_router.get(
     "/{username}/stars",
-    tags=["User Analytics"],
+    tags=["Dashboard Details"],
     summary="Get User's Stars Information",
     description="""
     Retrieves stars information for a user's repositories including:
@@ -169,7 +169,7 @@ async def get_user_stars(
 
 @analytics_router.get(
     "/{username}/pinned",
-    tags=["User Analytics"],
+    tags=["Dashboard Details"],
     summary="Get User's Pinned Repositories",
     description="""
     Retrieves a user's pinned repositories (up to 6) using the GitHub GraphQL API.
@@ -231,7 +231,7 @@ async def get_user_pinned(
 
 @analytics_router.get(
     "/{username}/repos",
-    tags=["User Analytics"],
+    tags=["Dashboard Details"],
     summary="Get User's Repository Details",
     description="""
     Retrieves detailed information for each of the user's public repositories including:
@@ -286,7 +286,7 @@ async def get_user_repos(
 
 @analytics_router.get(
     "/{username}/commits",
-    tags=["User Analytics"],
+    tags=["Dashboard Details"],
     summary="Get User's Commit History",
     description="""
     Retrieves a list of all commits made by the user across their owned repositories.
@@ -518,7 +518,7 @@ async def get_user_stats(
 
 @analytics_router.get(
     "/{username}/star-lists",
-    tags=["User Analytics"],
+    tags=["Dashboard Details"],
     summary="Get User's Starred Lists",
     description="""
     Retrieves the public 'Starred Lists' a user has created on GitHub (curated groups of starred repositories).
