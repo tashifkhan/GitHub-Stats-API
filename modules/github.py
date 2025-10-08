@@ -111,3 +111,12 @@ class StarredList(BaseModel):
     repositories: Optional[List[str]] = None
     description: Optional[str] = None
     num_repos: Optional[int] = None
+
+
+class PinnedRepo(BaseModel):
+    name: str
+    description: Optional[str]
+    url: str
+    stars: int
+    forks: int
+    primary_language: Optional[str] = None

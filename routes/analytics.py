@@ -168,6 +168,68 @@ async def get_user_stars(
 
 
 @analytics_router.get(
+    "/{username}/pinned",
+    tags=["User Analytics"],
+    summary="Get User's Pinned Repositories",
+    description="""
+    Retrieves a user's pinned repositories (up to 6) using the GitHub GraphQL API.
+
+    Includes: name, description, URL, star count, fork count, and primary language.
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved pinned repositories",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "name": "awesome-project",
+                            "description": "An awesome pinned project",
+                            "url": "https://github.com/user/awesome-project",
+                            "stars": 123,
+                            "forks": 10,
+                            "primary_language": "Python",
+                        }
+                    ]
+                }
+            },
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"},
+    },
+)
+async def get_user_pinned(
+    username: str = Path(
+        ...,
+        description="GitHub username",
+    ),
+    first: int = Query(
+        6,
+        ge=1,
+        le=6,
+        description="Number of pinned repositories to fetch (1-6)",
+    ),
+):
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub token not configured",
+        )
+
+    try:
+        return await get_user_pinned_repos(username, token, first)
+
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found or API error",
+            )
+        raise e
+
+
+@analytics_router.get(
     "/{username}/repos",
     tags=["User Analytics"],
     summary="Get User's Repository Details",

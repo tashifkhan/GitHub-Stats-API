@@ -116,6 +116,58 @@ async def get_contribution_graphs(
     return responses
 
 
+async def get_user_pinned_repos(
+    username: str, token: str, first: int = 6
+) -> List[PinnedRepo]:
+    """Fetch a user's pinned repositories via GitHub GraphQL API."""
+    first = max(1, min(first, 6))  # GitHub UI limits to 6
+    query = f"""
+        query {{
+            user(login: "{username}") {{
+                pinnedItems(first: {first}, types: REPOSITORY) {{
+                    edges {{
+                        node {{
+                            ... on Repository {{
+                                name
+                                description
+                                url
+                                stargazerCount
+                                forkCount
+                                primaryLanguage {{ name }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+        """
+    data = await execute_graphql_query(query, token)
+    user = data.get("data", {}).get("user")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found or API error")
+    edges = (
+        user.get("pinnedItems", {}).get("edges", []) if user.get("pinnedItems") else []
+    )
+    pinned: List[PinnedRepo] = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        pinned.append(
+            PinnedRepo(
+                name=node.get("name") or "",
+                description=node.get("description"),
+                url=node.get("url") or "",
+                stars=node.get("stargazerCount", 0),
+                forks=node.get("forkCount", 0),
+                primary_language=(
+                    (node.get("primaryLanguage") or {}).get("name")
+                    if node.get("primaryLanguage")
+                    else None
+                ),
+            )
+        )
+    return pinned
+
+
 def calculate_total_commits(contribution_data: Dict) -> int:
     total_commits = 0
     for year_data in contribution_data.values():

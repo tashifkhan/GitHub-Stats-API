@@ -1110,6 +1110,12 @@ docs_html_content = """
                     </div>
                 </div>
 
+                <!-- Pinned Repositories -->
+                <div class="profile-section">
+                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l4 4-3 3 6 6-2 2-6-6-3 3-4-4 8-8z"/></svg> Pinned Repositories</h3>
+                    <div id="pinned-repos" class="repos-grid"></div>
+                </div>
+
                 <!-- Top Repositories -->
                 <div class="profile-section">
                     <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> Top Starred Repositories</h3>
@@ -1959,10 +1965,11 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     
                     try {
                         // Fetch all data in parallel
-                        const [statsResponse, reposResponse, starsResponse, starListsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
+                        const [statsResponse, reposResponse, starsResponse, pinnedResponse, starListsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
                             fetch(`/${username}/stats`),
                             fetch(`/${username}/repos`),
                             fetch(`/${username}/stars`),
+                            fetch(`/${username}/pinned`),
                             fetch(`/${username}/star-lists?include_repos=true`),
                             fetch(`/${username}/commits`),
                             fetch(`/${username}/me/pulls`),
@@ -1973,6 +1980,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         const stats = await statsResponse.json();
                         const repos = await reposResponse.json();
                         const stars = await starsResponse.json();
+                        const pinned = await pinnedResponse.json();
                         const starLists = await starListsResponse.json();
                         const commits = await commitsResponse.json();
                         const pulls = await pullsResponse.json();
@@ -1980,7 +1988,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         const externalPrs = await externalPrsResponse.json();
                         
                         // Display results
-                        displayProfileResults(username, stats, repos, stars, starLists, commits);
+                        displayProfileResults(username, stats, repos, stars, pinned, starLists, commits);
                         
                         // Display user pull requests
                         displayUserPullRequests(pulls);
@@ -1997,7 +2005,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     }
                 }
                 
-                function displayProfileResults(username, stats, repos, stars, starLists, commits) {
+                function displayProfileResults(username, stats, repos, stars, pinned, starLists, commits) {
                     const results = document.getElementById('profile-results');
                     
                     // Update profile overview cards with null checks
@@ -2030,6 +2038,9 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     // Display contribution graph
                     displayContributionGraph(stats.contributions || {});
                     
+                    // Display pinned repositories
+                    displayPinnedRepos(pinned || []);
+
                     // Display top repositories
                     displayTopRepos(stars.repositories || []);
                     
@@ -2043,6 +2054,29 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     displayAllRepos(username, repos || []);
                     
                     results.style.display = 'block';
+                }
+
+                function displayPinnedRepos(pinned) {
+                    const container = document.getElementById('pinned-repos');
+                    if (!container) return;
+                    container.innerHTML = '';
+                    if (!Array.isArray(pinned) || pinned.length === 0) {
+                        container.innerHTML = '<p style="color: var(--text-color);">No pinned repositories.</p>';
+                        return;
+                    }
+                    pinned.forEach(repo => {
+                        const card = document.createElement('div');
+                        card.className = 'repo-card';
+                        card.innerHTML = `
+                            <h4 style=\"margin:0 0 .4rem 0; display:flex; justify-content:space-between; align-items:center;\">
+                                <a href=\"${repo.url}\" target=\"_blank\" style=\"color: var(--secondary-color); text-decoration:none;\">${repo.name}</a>
+                                <span class=\"repo-stars\" title=\"Stars\">${repo.stars}</span>
+                            </h4>
+                            ${repo.primary_language ? `<p style=\"margin:0 0 .25rem 0; font-size:.65rem; color:var(--text-color);\"><strong>${repo.primary_language}</strong></p>` : ''}
+                            ${repo.description ? `<p style=\"margin:0; font-size:.7rem; line-height:1.2;\">${repo.description}</p>` : ''}
+                        `;
+                        container.appendChild(card);
+                    });
                 }
 
                 function displayStarLists(lists) {
