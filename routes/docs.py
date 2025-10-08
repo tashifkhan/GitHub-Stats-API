@@ -1621,6 +1621,42 @@ docs_html_content = """
 
                         <div class="endpoint">
                             <div class="endpoint-header">
+                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/pinned</code> Get User's Pinned Repositories</h2>
+                                <span class="endpoint-toggle">+</span>
+                            </div>
+                            <div class="endpoint-content">
+                                <p>Retrieves a user's pinned repositories (as configured on their GitHub profile) via the GitHub GraphQL API. Returns up to 6 repositories including key metadata.</p>
+                                <div class="parameter">
+                                    <code>first</code> <strong>(query, optional)</strong> - Number of pinned repositories to fetch (1–6). Default: 6.
+                                </div>
+                                <div class="note">
+                                    <h3>Example Requests</h3>
+                                    <pre><code>GET /tashifkhan/pinned
+GET /tashifkhan/pinned?first=4</code></pre>
+                                </div>
+                                <div class="response">
+                                    <h3>Response</h3>
+                                    <pre><code class="language-json">[
+  {
+    "name": "awesome-project",
+    "description": "An awesome pinned project",
+    "url": "https://github.com/user/awesome-project",
+    "stars": 123,
+    "forks": 10,
+    "primary_language": "Python"
+  }
+]</code></pre>
+                                </div>
+                                <div class="error-response">
+                                    <h3>Error Responses</h3>
+                                    <p><code>404</code> - User not found or API error</p>
+                                    <p><code>500</code> - GitHub token configuration error or API error</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="endpoint">
+                            <div class="endpoint-header">
                                 <h2><span class="endpoint-method">GET</span><code class="path">/{username}/star-lists</code> Get User's Starred Lists</h2>
                                 <span class="endpoint-toggle">+</span>
                             </div>
