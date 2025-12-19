@@ -71,19 +71,19 @@ pr_router = APIRouter()
 #     }
 
 
-@pr_router.get(
-    "/{username}/me/pulls",
-    response_model=List[PullRequestDetail],
-    tags=["Dashboard Details"],
-)
-async def get_user_pull_requests_route(
-    username: str = Path(..., description="GitHub username"),
-    token: str = Depends(get_github_token),
-):
-    pulls = await get_user_pull_requests(username, token)
-    if pulls is None:
-        raise HTTPException(status_code=500, detail="Failed to retrieve pull requests")
-    return pulls
+# @pr_router.get(
+#     "/{username}/me/pulls",
+#     response_model=List[PullRequestDetail],
+#     tags=["Dashboard Details"],
+# )
+# async def get_user_pull_requests_route(
+#     username: str = Path(..., description="GitHub username"),
+#     token: str = Depends(get_github_token),
+# ):
+#     pulls = await get_user_pull_requests(username, token)
+#     if pulls is None:
+#         raise HTTPException(status_code=500, detail="Failed to retrieve pull requests")
+#     return pulls
 
 
 @pr_router.get(

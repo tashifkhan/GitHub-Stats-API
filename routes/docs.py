@@ -2008,7 +2008,6 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                             fetch(`/${username}/pinned`),
                             fetch(`/${username}/star-lists?include_repos=true`),
                             fetch(`/${username}/commits`),
-                            fetch(`/${username}/me/pulls`),
                             fetch(`/${username}/org-contributions`),
                             fetch(`/${username}/prs`)
                         ]);
