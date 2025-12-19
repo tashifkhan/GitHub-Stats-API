@@ -58,6 +58,13 @@ class GraphQLResponse(BaseModel):
     errors: Optional[List[Dict[str, str]]]
 
 
+class Contributor(BaseModel):
+    login: str
+    avatar_url: str
+    html_url: str
+    contributions: int
+
+
 class RepoDetail(BaseModel):
     title: str
     description: Optional[str]
@@ -66,6 +73,7 @@ class RepoDetail(BaseModel):
     num_commits: int
     stars: int = 0
     readme: Optional[str]
+    contributors: List[Contributor] = []
 
 
 class CommitDetail(BaseModel):

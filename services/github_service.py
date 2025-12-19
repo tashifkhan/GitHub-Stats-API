@@ -328,6 +328,31 @@ async def _get_commit_count(
         return 0
 
 
+async def _fetch_contributors(
+    client: httpx.AsyncClient, owner: str, repo_name: str, token: str
+) -> List[Contributor]:
+    contributors_url = (
+        f"{GITHUB_API}/repos/{owner}/{repo_name}/contributors?per_page=10"
+    )
+    try:
+        response = await client.get(contributors_url, headers=github_headers(token))
+        if response.status_code == 200:
+            contributors_data = response.json()
+            return [
+                Contributor(
+                    login=c["login"],
+                    avatar_url=c["avatar_url"],
+                    html_url=c["html_url"],
+                    contributions=c["contributions"],
+                )
+                for c in contributors_data
+                if isinstance(c, dict)
+            ]
+        return []
+    except Exception:
+        return []
+
+
 async def fetch_repo_details(
     client: httpx.AsyncClient, repo: Dict, token: str
 ) -> Optional[RepoDetail]:
@@ -336,6 +361,7 @@ async def fetch_repo_details(
 
     readme_content_b64 = None
     languages_list = []
+    contributors_list = []
 
     async def get_readme():
         nonlocal readme_content_b64
@@ -359,10 +385,14 @@ async def fetch_repo_details(
         except Exception:
             pass
 
+    async def get_contributors():
+        nonlocal contributors_list
+        contributors_list = await _fetch_contributors(client, owner, repo_name, token)
+
     num_commits = await _get_commit_count(client, owner, repo_name, token)
     stars_count = repo.get("stargazers_count", 0)
 
-    await asyncio.gather(get_readme(), get_languages())
+    await asyncio.gather(get_readme(), get_languages(), get_contributors())
 
     description = repo.get("description")
     homepage_url = repo.get("homepage")
@@ -385,6 +415,7 @@ async def fetch_repo_details(
         num_commits=num_commits,
         stars=stars_count,
         readme=readme_content_b64,
+        contributors=contributors_list,
     )
 
 
