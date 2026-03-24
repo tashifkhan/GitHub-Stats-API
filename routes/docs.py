@@ -1999,39 +1999,47 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     loading.style.display = 'block';
                     results.style.display = 'none';
                     
+                    // Fetch all data in parallel — individual failures don't block the rest
+                    const safeJson = async (res) => {
+                        try { return res.ok ? await res.json() : null; }
+                        catch { return null; }
+                    };
+
+                    const results = await Promise.allSettled([
+                        fetch(`/${username}/stats`),
+                        fetch(`/${username}/repos`),
+                        fetch(`/${username}/stars`),
+                        fetch(`/${username}/pinned`),
+                        fetch(`/${username}/star-lists?include_repos=true`),
+                        fetch(`/${username}/commits`),
+                        fetch(`/${username}/me/pulls`),
+                        fetch(`/${username}/org-contributions`),
+                        fetch(`/${username}/prs`)
+                    ]);
+
+                    const getResponse = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
+
                     try {
-                        // Fetch all data in parallel
-                        const [statsResponse, reposResponse, starsResponse, pinnedResponse, starListsResponse, commitsResponse, pullsResponse, orgContribResponse, externalPrsResponse] = await Promise.all([
-                            fetch(`/${username}/stats`),
-                            fetch(`/${username}/repos`),
-                            fetch(`/${username}/stars`),
-                            fetch(`/${username}/pinned`),
-                            fetch(`/${username}/star-lists?include_repos=true`),
-                            fetch(`/${username}/commits`),
-                            fetch(`/${username}/org-contributions`),
-                            fetch(`/${username}/prs`)
+                        const [stats, repos, stars, pinned, starLists, commits, pulls, orgContribs, externalPrs] = await Promise.all([
+                            getResponse(0) ? safeJson(getResponse(0)) : Promise.resolve(null),
+                            getResponse(1) ? safeJson(getResponse(1)) : Promise.resolve(null),
+                            getResponse(2) ? safeJson(getResponse(2)) : Promise.resolve(null),
+                            getResponse(3) ? safeJson(getResponse(3)) : Promise.resolve(null),
+                            getResponse(4) ? safeJson(getResponse(4)) : Promise.resolve(null),
+                            getResponse(5) ? safeJson(getResponse(5)) : Promise.resolve(null),
+                            getResponse(6) ? safeJson(getResponse(6)) : Promise.resolve(null),
+                            getResponse(7) ? safeJson(getResponse(7)) : Promise.resolve(null),
+                            getResponse(8) ? safeJson(getResponse(8)) : Promise.resolve(null),
                         ]);
-                        
-                        const stats = await statsResponse.json();
-                        const repos = await reposResponse.json();
-                        const stars = await starsResponse.json();
-                        const pinned = await pinnedResponse.json();
-                        const starLists = await starListsResponse.json();
-                        const commits = await commitsResponse.json();
-                        const pulls = await pullsResponse.json();
-                        const orgContribs = await orgContribResponse.json();
-                        const externalPrs = await externalPrsResponse.json();
-                        
-                        // Display results
+
+                        // Display results — each display function handles null gracefully
                         displayProfileResults(username, stats, repos, stars, pinned, starLists, commits);
-                        
-                        // Display user pull requests
                         displayUserPullRequests(pulls);
                         displayOrgContributions(orgContribs);
                         displayExternalPullRequests(externalPrs);
-                        
+
                     } catch (error) {
-                        console.error('Error fetching data:', error);
+                        console.error('Error displaying data:', error);
                         showError('Failed to fetch GitHub data. Please check the username and try again.');
                     } finally {
                         if (loading) {
@@ -2053,31 +2061,31 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         'total-repos': document.getElementById('total-repos')
                     };
                     
-                    if (stats.status === 'success') {
+                    if (stats && stats.status === 'success') {
                         if (elements['total-commits']) elements['total-commits'].textContent = stats.totalCommits || 0;
                         if (elements['longest-streak']) elements['longest-streak'].textContent = stats.longestStreak || 0;
                         if (elements['current-streak']) elements['current-streak'].textContent = stats.currentStreak || 0;
                         if (elements['profile-views']) elements['profile-views'].textContent = stats.profile_visitors || 0;
-                        if (elements['total-stars']) elements['total-stars'].textContent = stars.total_stars || 0;
-                        if (elements['total-repos']) elements['total-repos'].textContent = repos.length || 0;
+                        if (elements['total-stars']) elements['total-stars'].textContent = (stars && stars.total_stars) || 0;
+                        if (elements['total-repos']) elements['total-repos'].textContent = (repos && repos.length) || 0;
                     } else {
                         // Handle error case
                         Object.values(elements).forEach(el => {
                             if (el) el.textContent = '0';
                         });
                     }
-                    
+
                     // Display languages
-                    displayLanguages(stats.topLanguages || []);
-                    
+                    displayLanguages((stats && stats.topLanguages) || []);
+
                     // Display contribution graph
-                    displayContributionGraph(stats.contributions || {});
+                    displayContributionGraph((stats && stats.contributions) || {});
                     
                     // Display pinned repositories
                     displayPinnedRepos(pinned || []);
 
                     // Display top repositories
-                    displayTopRepos(stars.repositories || []);
+                    displayTopRepos((stars && stars.repositories) || []);
                     
                     // Display starred lists
                     displayStarLists(starLists || []);
