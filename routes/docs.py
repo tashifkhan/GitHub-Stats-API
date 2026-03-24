@@ -2005,7 +2005,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         catch { return null; }
                     };
 
-                    const results = await Promise.allSettled([
+                    const settled = await Promise.allSettled([
                         fetch(`/${username}/stats`),
                         fetch(`/${username}/repos`),
                         fetch(`/${username}/stars`),
@@ -2017,7 +2017,7 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         fetch(`/${username}/prs`)
                     ]);
 
-                    const getResponse = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
+                    const getResponse = (i) => settled[i].status === 'fulfilled' ? settled[i].value : null;
 
                     try {
                         const [stats, repos, stars, pinned, starLists, commits, pulls, orgContribs, externalPrs] = await Promise.all([
