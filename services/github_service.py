@@ -891,16 +891,17 @@ async def fetch_repos_from_star_list(list_url: str) -> List[str]:
         soup = BeautifulSoup(resp.text, "html.parser")
         repos: List[str] = []
 
-        for repo in soup.select("h3 a[href^='/']"):
-            href_attr = repo.get("href")
+        # Match links of the form /owner/repo (exactly two path segments)
+        repo_re = re.compile(r"^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
+
+        for a_tag in soup.find_all("a", href=True):
+            href_attr = a_tag.get("href")
             if href_attr is None:
                 continue
-
             href_str = href_attr if isinstance(href_attr, str) else str(href_attr)
-            link = href_str.strip("/")
-
-            if "/" in link and not link.endswith("stargazers"):
-                repos.append(link)
+            m = repo_re.match(href_str)
+            if m:
+                repos.append(f"{m.group(1)}/{m.group(2)}")
 
         return sorted(set(repos))
 

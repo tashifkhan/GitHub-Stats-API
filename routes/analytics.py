@@ -549,7 +549,7 @@ async def get_user_stats(
 async def get_user_star_lists(
     username: str = Path(..., description="GitHub username"),
     include_repos: bool = Query(
-        False, description="Whether to also fetch repositories within each list"
+        True, description="Whether to also fetch repositories within each list"
     ),
 ):
     try:
