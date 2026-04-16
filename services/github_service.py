@@ -1,12 +1,15 @@
-from fastapi import HTTPException
-from typing import List, Dict, Optional
-from modules.github import *
-from datetime import datetime
-import httpx
 import asyncio
+import base64
+from datetime import datetime
 import re
+from typing import Dict, List, Optional
+
+import httpx
+from fastapi import HTTPException
 from bs4 import BeautifulSoup
 from typing import cast
+
+from modules.github import *
 
 BASE_GITHUB_URL = "https://github.com"
 
@@ -22,15 +25,21 @@ STAR_HEADERS = {
 
 async def execute_graphql_query(query: str, token: str) -> Dict:
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://api.github.com/graphql",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={"query": query},
-        )
+        response = await _execute_graphql_query_with_client(client, query, token)
         return response.json()
+
+
+async def _execute_graphql_query_with_client(
+    client: httpx.AsyncClient, query: str, token: str
+) -> httpx.Response:
+    return await client.post(
+        "https://api.github.com/graphql",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"query": query},
+    )
 
 
 async def build_contribution_graph_query(user: str, year: int) -> str:
@@ -70,16 +79,36 @@ async def get_language_stats(
 
         repos = repos_response.json()
 
+        excluded_set = set(excluded_languages)
         language_totals: Dict[str, int] = {}
-        for repo in repos:
-            lang_response = await client.get(
-                repo["languages_url"], headers={"Authorization": f"Bearer {token}"}
-            )
-            if lang_response.status_code == 200:
-                langs = lang_response.json()
-                for lang, bytes in langs.items():
-                    if lang not in excluded_languages:
-                        language_totals[lang] = language_totals.get(lang, 0) + bytes
+        language_urls = [
+            repo.get("languages_url")
+            for repo in repos
+            if isinstance(repo, dict) and repo.get("languages_url")
+        ]
+
+        semaphore = asyncio.Semaphore(8)
+
+        async def fetch_languages(url: str) -> Dict[str, int]:
+            async with semaphore:
+                lang_response = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if lang_response.status_code != 200:
+                    return {}
+                data = lang_response.json()
+                return data if isinstance(data, dict) else {}
+
+        language_payloads = await asyncio.gather(
+            *(fetch_languages(url) for url in language_urls)
+        )
+
+        for langs in language_payloads:
+            for lang, bytes_used in langs.items():
+                if lang in excluded_set:
+                    continue
+                language_totals[lang] = language_totals.get(lang, 0) + bytes_used
 
         total_bytes = sum(language_totals.values())
         if total_bytes == 0:
@@ -97,23 +126,32 @@ async def get_contribution_graphs(
 ) -> Dict:
     current_year = datetime.now().year
 
-    query = await build_contribution_graph_query(username, current_year)
-    initial_response = await execute_graphql_query(query, token)
+    async with httpx.AsyncClient() as client:
+        query = await build_contribution_graph_query(username, current_year)
+        initial_response = (
+            await _execute_graphql_query_with_client(client, query, token)
+        ).json()
 
-    if not initial_response.get("data", {}).get("user"):
-        raise HTTPException(status_code=404, detail="User not found or API error")
+        if not initial_response.get("data", {}).get("user"):
+            raise HTTPException(status_code=404, detail="User not found or API error")
 
-    user_created_date = initial_response["data"]["user"]["createdAt"]
-    user_created_year = int(user_created_date.split("-")[0])
-    minimum_year = max(starting_year or user_created_year, 2005)
+        user_created_date = initial_response["data"]["user"]["createdAt"]
+        user_created_year = int(user_created_date.split("-")[0])
+        minimum_year = max(starting_year or user_created_year, 2005)
+        years = list(range(minimum_year, current_year + 1))
 
-    responses = {}
-    for year in range(minimum_year, current_year + 1):
-        query = await build_contribution_graph_query(username, year)
-        response = await execute_graphql_query(query, token)
-        responses[year] = response
+        semaphore = asyncio.Semaphore(6)
 
-    return responses
+        async def fetch_year(year: int):
+            year_query = await build_contribution_graph_query(username, year)
+            async with semaphore:
+                year_response = await _execute_graphql_query_with_client(
+                    client, year_query, token
+                )
+            return year, year_response.json()
+
+        year_results = await asyncio.gather(*(fetch_year(year) for year in years))
+        return {year: data for year, data in sorted(year_results, key=lambda x: x[0])}
 
 
 async def get_user_pinned_repos(
@@ -300,6 +338,79 @@ def _extract_url_from_description(description: Optional[str]) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def _decode_readme_to_markdown(content_b64: Optional[str]) -> Optional[str]:
+    if not content_b64:
+        return None
+
+    try:
+        normalized = content_b64.replace("\n", "")
+        decoded = base64.b64decode(normalized, validate=False)
+        text = decoded.decode("utf-8", errors="replace").strip()
+        return text or None
+    except Exception:
+        return None
+
+
+async def _fetch_releases(
+    client: httpx.AsyncClient, owner: str, repo_name: str, token: str, limit: int = 5
+) -> List[RepoRelease]:
+    releases_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/releases?per_page={limit}"
+    try:
+        response = await client.get(releases_url, headers=github_headers(token))
+        if response.status_code != 200:
+            return []
+
+        releases_data = response.json()
+        if not isinstance(releases_data, list):
+            return []
+
+        releases: List[RepoRelease] = []
+        for rel in releases_data:
+            if not isinstance(rel, dict):
+                continue
+
+            assets_data = rel.get("assets")
+            assets: List[ReleaseAsset] = []
+            if isinstance(assets_data, list):
+                for asset in assets_data:
+                    if not isinstance(asset, dict):
+                        continue
+                    download_url = asset.get("browser_download_url")
+                    if not isinstance(download_url, str) or not download_url:
+                        continue
+
+                    assets.append(
+                        ReleaseAsset(
+                            name=asset.get("name") or "asset",
+                            download_url=download_url,
+                            size=asset.get("size") or 0,
+                            download_count=asset.get("download_count") or 0,
+                            content_type=asset.get("content_type"),
+                            updated_at=asset.get("updated_at"),
+                        )
+                    )
+
+            releases.append(
+                RepoRelease(
+                    id=rel.get("id") or 0,
+                    tag_name=rel.get("tag_name") or "untagged",
+                    name=rel.get("name"),
+                    body=rel.get("body"),
+                    url=rel.get("html_url")
+                    or f"{BASE_GITHUB_URL}/{owner}/{repo_name}/releases",
+                    draft=bool(rel.get("draft")),
+                    prerelease=bool(rel.get("prerelease")),
+                    created_at=rel.get("created_at"),
+                    published_at=rel.get("published_at"),
+                    assets=assets,
+                )
+            )
+
+        return releases
+    except Exception:
+        return []
+
+
 async def _get_commit_count(
     client: httpx.AsyncClient, owner: str, repo_name: str, token: str
 ) -> int:
@@ -360,16 +471,19 @@ async def fetch_repo_details(
     owner = repo["owner"]["login"]
 
     readme_content_b64 = None
+    readme_content_markdown = None
     languages_list = []
     contributors_list = []
+    releases_list: List[RepoRelease] = []
 
     async def get_readme():
-        nonlocal readme_content_b64
+        nonlocal readme_content_b64, readme_content_markdown
         readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
         try:
             readme_resp = await client.get(readme_url, headers=github_headers(token))
             if readme_resp.status_code == 200:
                 readme_content_b64 = readme_resp.json().get("content")
+                readme_content_markdown = _decode_readme_to_markdown(readme_content_b64)
         except Exception:
             pass
 
@@ -389,10 +503,16 @@ async def fetch_repo_details(
         nonlocal contributors_list
         contributors_list = await _fetch_contributors(client, owner, repo_name, token)
 
+    async def get_releases():
+        nonlocal releases_list
+        releases_list = await _fetch_releases(client, owner, repo_name, token)
+
     num_commits = await _get_commit_count(client, owner, repo_name, token)
     stars_count = repo.get("stargazers_count", 0)
 
-    await asyncio.gather(get_readme(), get_languages(), get_contributors())
+    await asyncio.gather(
+        get_readme(), get_languages(), get_contributors(), get_releases()
+    )
 
     description = repo.get("description")
     homepage_url = repo.get("homepage")
@@ -414,8 +534,9 @@ async def fetch_repo_details(
         languages=languages_list,
         num_commits=num_commits,
         stars=stars_count,
-        readme=readme_content_b64,
+        readme=readme_content_markdown,
         contributors=contributors_list,
+        releases=releases_list,
     )
 
 
@@ -794,7 +915,6 @@ async def fetch_star_lists(username: str) -> List[StarredList]:
         follow_redirects=True,
         timeout=15.0,
     ) as client:
-
         resp = await client.get(
             url,
             headers=STAR_HEADERS,
@@ -876,7 +996,6 @@ async def fetch_repos_from_star_list(list_url: str) -> List[str]:
         follow_redirects=True,
         timeout=15.0,
     ) as client:
-
         resp = await client.get(
             list_url,
             headers=STAR_HEADERS,
