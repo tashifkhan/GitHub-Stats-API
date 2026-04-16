@@ -1077,6 +1077,15 @@ docs_html_content = """
                         </div>
                         <div class="profile-card">
                             <div class="card-icon">
+                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                            </div>
+                            <div class="card-content">
+                                <h4>Profile Views</h4>
+                                <div id="profile-views" class="card-value">-</div>
+                            </div>
+                        </div>
+                        <div class="profile-card">
+                            <div class="card-icon">
                                 <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                             </div>
                             <div class="card-content">
@@ -1264,12 +1273,16 @@ docs_html_content = """
                                 
                                 <h3>Parameters</h3>
                                 <div class="parameter">
-                                    <code>exclude</code> Optional comma-separated list of languages to exclude (default: Markdown, JSON, YAML, XML)
+                                    <code>exclude</code> Optional comma-separated list of languages to exclude (preferred)
+                                </div>
+                                <div class="parameter">
+                                    <code>excluded</code> Optional repeated query param for backwards compatibility (legacy)
                                 </div>
 
                                 <div class="note">
                                     <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS</code></pre>
+                                    <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS
+GET /tashifkhan/languages?excluded=HTML&excluded=CSS</code></pre>
                                 </div>
 
                                 <div class="response">
@@ -1348,12 +1361,16 @@ docs_html_content = """
                                 <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, current streak, profile visitors count, and contribution history data.</p>
                                 
                                 <div class="parameter">
-                                    <code>exclude</code> Optional comma-separated list of languages to exclude
+                                    <code>exclude</code> Optional comma-separated list of languages to exclude (preferred)
+                                </div>
+                                <div class="parameter">
+                                    <code>excluded</code> Optional repeated query param for backwards compatibility (legacy)
                                 </div>
 
                                 <div class="note">
                                     <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown</code></pre>
+                                    <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown
+GET /tashifkhan/stats?excluded=HTML&excluded=CSS&excluded=Markdown</code></pre>
                                 </div>
 
                                 <div class="response">
@@ -1550,7 +1567,7 @@ docs_html_content = """
                                 <span class="endpoint-toggle">+</span>
                             </div>
                             <div class="endpoint-content">
-                                <p>Retrieves detailed information for each of the user's public repositories, including README content (Base64 encoded), languages, commit count, and stars count.</p>
+                                <p>Retrieves detailed information for each of the user's public repositories, including decoded README markdown, languages, commit count, stars count, and latest release metadata (with asset download links).</p>
                                 
                                 <div class="note">
                                     <h3>Example Request</h3>
@@ -1567,7 +1584,30 @@ docs_html_content = """
         "languages": ["Python", "JavaScript"],
         "num_commits": 42,
         "stars": 25,
-        "readme": "BASE64_ENCODED_README_CONTENT"
+        "readme": "# RepoName\n\nProject documentation in markdown.",
+        "releases": [
+            {
+                "id": 123456,
+                "tag_name": "v1.2.0",
+                "name": "v1.2.0",
+                "body": "## Changelog\n\n- Added release support",
+                "url": "https://github.com/user/RepoName/releases/tag/v1.2.0",
+                "draft": false,
+                "prerelease": false,
+                "created_at": "2024-01-01T00:00:00Z",
+                "published_at": "2024-01-01T01:00:00Z",
+                "assets": [
+                    {
+                        "name": "RepoName-v1.2.0.zip",
+                        "download_url": "https://github.com/user/RepoName/releases/download/v1.2.0/RepoName-v1.2.0.zip",
+                        "size": 204800,
+                        "download_count": 120,
+                        "content_type": "application/zip",
+                        "updated_at": "2024-01-01T01:10:00Z"
+                    }
+                ]
+            }
+        ]
     }
 ]</code></pre>
                                 </div>
@@ -2377,7 +2417,48 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                     });
                 }
                 
-                function displayAllRepos(username, repos) {
+                function escapeHtml(value) {
+                    if (value === null || value === undefined) return '';
+                    return String(value)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                }
+
+                function safeUrl(url) {
+                    if (typeof url !== 'string') return '#';
+                    const normalized = url.toLowerCase();
+                    return (normalized.startsWith('http://') || normalized.startsWith('https://')) ? url : '#';
+                }
+
+                function formatBytes(bytes) {
+                    const size = Number(bytes) || 0;
+                    if (size < 1024) return `${size} B`;
+                    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+                    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+                }
+
+                async function renderMarkdownToHtml(markdownText) {
+                    if (!markdownText || typeof markdownText !== 'string') return '';
+                    try {
+                        const resp = await fetch('/render-markdown', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ markdown: markdownText })
+                        });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            return data && data.html ? data.html : '';
+                        }
+                    } catch (e) {
+                        console.error('Markdown render failed:', e);
+                    }
+                    return `<pre><code>${escapeHtml(markdownText)}</code></pre>`;
+                }
+
+                async function displayAllRepos(username, repos) {
                     const container = document.getElementById('all-repos');
                     if (!container) return;
                     
@@ -2388,7 +2469,37 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                         return;
                     }
                     
-                    repos.forEach(repo => {
+                    for (const repo of repos) {
+                        const releases = Array.isArray(repo.releases) ? repo.releases : [];
+                        const releasesHtml = [];
+
+                        for (const release of releases) {
+                            const releaseBodyHtml = release.body
+                                ? await renderMarkdownToHtml(release.body)
+                                : '<p style="font-size:0.75rem; margin:0.35rem 0 0; opacity:0.7;">No release notes</p>';
+
+                            const assets = Array.isArray(release.assets) ? release.assets : [];
+                            const assetsHtml = assets.length
+                                ? `<ul style="margin:0.5rem 0 0; padding-left:1rem; font-size:0.75rem; line-height:1.45;">${assets.map(asset => `
+                                    <li>
+                                        <a href="${safeUrl(asset.download_url)}" target="_blank" style="color: var(--secondary-color); text-decoration: underline;">${escapeHtml(asset.name || 'asset')}</a>
+                                        <span style="opacity:0.75;"> - ${formatBytes(asset.size)} - ${asset.download_count || 0} downloads</span>
+                                    </li>
+                                `).join('')}</ul>`
+                                : '<p style="font-size:0.75rem; margin:0.5rem 0 0; opacity:0.7;">No release assets</p>';
+
+                            releasesHtml.push(`
+                                <div style="margin-top:0.6rem; padding-top:0.55rem; border-top:1px dashed var(--hover-color);">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+                                        <a href="${safeUrl(release.url)}" target="_blank" style="color: var(--secondary-color); text-decoration: none; font-size:0.8rem; font-weight:600;">${escapeHtml(release.name || release.tag_name || 'Release')}</a>
+                                        <span class="date-badge">${release.published_at ? formatDate(release.published_at) : 'Unpublished'}</span>
+                                    </div>
+                                    <div class="repo-description" style="font-size:0.75rem; margin-top:0.4rem;">${releaseBodyHtml}</div>
+                                    ${assetsHtml}
+                                </div>
+                            `);
+                        }
+
                         const repoCard = document.createElement('div');
                         repoCard.className = 'repo-card';
                         repoCard.innerHTML = `
@@ -2408,9 +2519,13 @@ GET /tashifkhan/star-lists?include_repos=true</code></pre>
                                 <span class="date-badge">${repo.num_commits || 0} commits</span>
                                 ${repo.live_website_url ? `<span><a href="${repo.live_website_url}" target="_blank" style="color: var(--secondary-color);"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Live Site</a></span>` : ''}
                             </div>
+                            <div style="margin-top:0.55rem; padding-top:0.5rem; border-top:1px solid var(--hover-color);">
+                                <h5 style="margin:0; font-size:0.78rem; color:var(--heading-color);">Releases (${releases.length})</h5>
+                                ${releases.length ? releasesHtml.join('') : '<p style="margin:0.35rem 0 0; font-size:0.75rem; opacity:0.7;">No releases found</p>'}
+                            </div>
                         `;
                         container.appendChild(repoCard);
-                    });
+                    }
                 }
                 
                 function getLanguageColor(language) {
