@@ -1,11 +1,19 @@
-import asyncio
-from fastapi import APIRouter, HTTPException, Query, Path
-from fastapi.responses import JSONResponse, Response
-from typing import Dict, List, Optional, Any
-from modules.github import LanguageData, RepoDetail, StarsData
-import os
-from services.github_service import *
-from services.profile_views_service import increment_profile_views, get_profile_views
+from fastapi import APIRouter, Depends, Path, Query
+from typing import Any, Dict, List, Optional
+
+from modules.github import (
+    CommitDetail,
+    GitHubStatsResponse,
+    LanguageData,
+    RepoDetail,
+    StarsData,
+)
+from routes.dependencies import (
+    DEFAULT_EXCLUDED_LANGUAGES,
+    get_analytics_service,
+    parse_excluded_languages,
+)
+from services.analytics_service import AnalyticsService
 
 analytics_router = APIRouter()
 
@@ -43,15 +51,22 @@ analytics_router = APIRouter()
 )
 async def get_user_language_stats(
     username: str,
-    excluded: List[str] = Query(
-        default=["Markdown", "JSON", "YAML", "XML"],
-        description="Languages to exclude from the statistics",
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated list of languages to exclude (preferred)",
     ),
+    excluded: Optional[List[str]] = Query(
+        None,
+        description="Languages to exclude from the statistics (legacy parameter)",
+    ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[LanguageData]:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-    return await get_language_stats(username, token, excluded)
+    excluded_languages = parse_excluded_languages(
+        exclude=exclude,
+        excluded=excluded,
+        default=DEFAULT_EXCLUDED_LANGUAGES,
+    )
+    return await analytics_service.get_user_language_stats(username, excluded_languages)
 
 
 @analytics_router.get(
@@ -96,20 +111,9 @@ async def get_user_contributions(
         None,
         description="Starting year for contribution history (defaults to account creation year)",
     ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-
-    contribution_data = await get_contribution_graphs(username, token, starting_year)
-    total_commits = calculate_total_commits(contribution_data)
-    longest_streak = calculate_longest_streak(contribution_data)
-
-    return {
-        "contributions": contribution_data,
-        "totalCommits": total_commits,
-        "longestStreak": longest_streak,
-    }
+    return await analytics_service.get_user_contributions(username, starting_year)
 
 
 @analytics_router.get(
@@ -154,17 +158,9 @@ async def get_user_contributions(
 )
 async def get_user_stars(
     username: str = Path(..., description="GitHub username"),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> StarsData:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-
-    try:
-        return await get_user_stars_data(username, token)
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(status_code=404, detail="User not found or API error")
-        raise e
+    return await analytics_service.get_user_stars(username)
 
 
 @analytics_router.get(
@@ -209,24 +205,9 @@ async def get_user_pinned(
         le=6,
         description="Number of pinned repositories to fetch (1-6)",
     ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ):
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(
-            status_code=500,
-            detail="GitHub token not configured",
-        )
-
-    try:
-        return await get_user_pinned_repos(username, token, first)
-
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found or API error",
-            )
-        raise e
+    return await analytics_service.get_user_pinned(username, first)
 
 
 @analytics_router.get(
@@ -241,7 +222,8 @@ async def get_user_pinned(
     - Programming languages used
     - Number of commits
     - Number of stars
-    - README content (Base64 encoded)
+    - README content (decoded Markdown)
+    - Latest releases (including release notes and asset download links)
     
     This endpoint provides comprehensive repository information for portfolio displays.
     """,
@@ -259,7 +241,30 @@ async def get_user_pinned(
                             "languages": ["Python", "JavaScript"],
                             "num_commits": 42,
                             "stars": 25,
-                            "readme": "BASE64_ENCODED_README_CONTENT",
+                            "readme": "# RepoName\n\nProject documentation in Markdown.",
+                            "releases": [
+                                {
+                                    "id": 123456,
+                                    "tag_name": "v1.2.0",
+                                    "name": "v1.2.0",
+                                    "body": "## Changelog\n\n- Added new feature",
+                                    "url": "https://github.com/user/repo/releases/tag/v1.2.0",
+                                    "draft": False,
+                                    "prerelease": False,
+                                    "created_at": "2024-01-01T00:00:00Z",
+                                    "published_at": "2024-01-01T01:00:00Z",
+                                    "assets": [
+                                        {
+                                            "name": "repo-v1.2.0.zip",
+                                            "download_url": "https://github.com/user/repo/releases/download/v1.2.0/repo-v1.2.0.zip",
+                                            "size": 102400,
+                                            "download_count": 250,
+                                            "content_type": "application/zip",
+                                            "updated_at": "2024-01-01T01:05:00Z",
+                                        }
+                                    ],
+                                }
+                            ],
                         }
                     ]
                 }
@@ -271,17 +276,9 @@ async def get_user_pinned(
 )
 async def get_user_repos(
     username: str = Path(..., description="GitHub username"),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[RepoDetail]:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-
-    try:
-        return await get_repo_details(username, token)
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(status_code=404, detail="User not found or API error")
-        raise e
+    return await analytics_service.get_user_repos(username)
 
 
 @analytics_router.get(
@@ -319,17 +316,9 @@ async def get_user_repos(
 )
 async def get_user_commits(
     username: str = Path(..., description="GitHub username"),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[CommitDetail]:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-
-    try:
-        return await get_all_commits(username, token)
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(status_code=404, detail="User not found or API error")
-        raise e
+    return await analytics_service.get_user_commits(username)
 
 
 @analytics_router.get(
@@ -364,22 +353,9 @@ async def get_profile_views_count(
     username: str = Path(..., description="GitHub username"),
     increment: bool = Query(True, description="Whether to increment the view count"),
     base: Optional[int] = Query(None, description="Base count to set (for migration)"),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict[str, Any]:
-    if base is not None:
-        views = await get_profile_views(username, base)
-        return {
-            "username": username,
-            "views": views,
-            "incremented": False,
-            "base_set": True,
-        }
-
-    if increment:
-        views = await increment_profile_views(username)
-        return {"username": username, "views": views, "incremented": True}
-    else:
-        views = await get_profile_views(username)
-        return {"username": username, "views": views, "incremented": False}
+    return await analytics_service.get_profile_views_count(username, increment, base)
 
 
 @analytics_router.get(
@@ -469,51 +445,19 @@ async def get_user_stats(
         None,
         description="Comma-separated list of languages to exclude from language stats",
     ),
+    excluded: Optional[List[str]] = Query(
+        None,
+        description="Legacy list-style language exclusions",
+    ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> GitHubStatsResponse:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-
-    excluded_list = exclude.split(",") if exclude else []
-
-    try:
-        contribution_data = await get_contribution_graphs(username, token)
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found or API error fetching contributions",
-            )
-        raise e
-
-    try:
-        language_stats = await get_language_stats(username, token, excluded_list)
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found or API error fetching language stats",
-            )
-        raise e
-
-    total_commits = calculate_total_commits(contribution_data)
-    longest_streak = calculate_longest_streak(contribution_data)
-    current_streak = calculate_current_streak(contribution_data)
-
-    # Get profile visitors count
-    profile_visitors = await get_profile_views(username)
-
-    response = GitHubStatsResponse(
-        status="success",
-        message="retrieved",
-        topLanguages=language_stats,
-        totalCommits=total_commits,
-        longestStreak=longest_streak,
-        currentStreak=current_streak,
-        profile_visitors=profile_visitors,
-        contributions=contribution_data,
+    excluded_list = parse_excluded_languages(
+        exclude=exclude,
+        excluded=excluded,
+        default=[],
     )
-    return response
+
+    return await analytics_service.get_user_stats(username, excluded_list)
 
 
 @analytics_router.get(
@@ -551,13 +495,6 @@ async def get_user_star_lists(
     include_repos: bool = Query(
         True, description="Whether to also fetch repositories within each list"
     ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
 ):
-    try:
-        lists = await get_user_starred_lists(username, include_repos)
-        if not lists:
-            return []
-        return [l.model_dump() for l in lists]
-    except HTTPException as e:
-        if e.status_code == 404:
-            raise HTTPException(status_code=404, detail="User not found or API error")
-        raise e
+    return await analytics_service.get_user_star_lists(username, include_repos)

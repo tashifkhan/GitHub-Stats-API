@@ -31,7 +31,8 @@ The heart of this project is the interactive dashboard, which you can access at 
 
 Fetches comprehensive statistics for a user, including language stats, contribution history, and profile views.
 
-- **`exclude`** (query, optional): Comma-separated list of languages to exclude.
+- **`exclude`** (query, optional): Comma-separated list of languages to exclude (preferred).
+- **`excluded`** (query, optional, legacy): Repeatable query param for backwards compatibility, e.g. `?excluded=HTML&excluded=CSS`.
 
 **Example Response:**
 
@@ -52,7 +53,8 @@ Fetches comprehensive statistics for a user, including language stats, contribut
 
 `GET /{username}/languages`
 
-- **`exclude`** (query, optional): Comma-separated list of languages to exclude.
+- **`exclude`** (query, optional): Comma-separated list of languages to exclude (preferred).
+- **`excluded`** (query, optional, legacy): Repeatable query param for backwards compatibility.
 
 ### Get Contribution History
 
@@ -63,6 +65,37 @@ Fetches comprehensive statistics for a user, including language stats, contribut
 ### Get Repository Details
 
 `GET /{username}/repos`
+
+Returns repository-level data including:
+
+- Decoded README content as Markdown (`readme`)
+- Latest releases (`releases`)
+- Release notes/body in Markdown (`releases[].body`)
+- Release asset download links (`releases[].assets[].download_url`)
+
+Example:
+
+```json
+[
+  {
+    "title": "RepoName",
+    "readme": "# RepoName\n\nProject documentation in markdown.",
+    "releases": [
+      {
+        "tag_name": "v1.2.0",
+        "body": "## Changelog\n\n- Added release support",
+        "url": "https://github.com/user/RepoName/releases/tag/v1.2.0",
+        "assets": [
+          {
+            "name": "RepoName-v1.2.0.zip",
+            "download_url": "https://github.com/user/RepoName/releases/download/v1.2.0/RepoName-v1.2.0.zip"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
 
 ### Get Stars Information
 
