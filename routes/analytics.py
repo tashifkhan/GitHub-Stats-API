@@ -1,20 +1,17 @@
 from fastapi import APIRouter, Depends, Path, Query
 from typing import Any, Dict, List, Optional
 
-from modules.github import (
-    CommitDetail,
-    GitHubStatsResponse,
-    LanguageData,
-    RepoDetail,
-    StarsData,
-)
-from modules.unified import make_envelope
+from models.analytics import GitHubStatsResponse, LanguageData
+from models.commits import CommitDetail
+from models.repositories import RepoDetail
+from models.stars import StarsData
+from models.canonical import make_envelope
 from routes.dependencies import (
     DEFAULT_EXCLUDED_LANGUAGES,
     get_analytics_service,
     parse_excluded_languages,
 )
-from services import unified_mapper
+from services import canonical_mapper
 from services.analytics_service import AnalyticsService
 
 analytics_router = APIRouter()
@@ -116,7 +113,7 @@ async def get_user_contributions(
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict:
     legacy = await analytics_service.get_user_contributions(username, starting_year)
-    data = unified_mapper.heatmap_from(
+    data = canonical_mapper.heatmap_from(
         legacy.get("contributions"),
         legacy.get("longestStreak", 0),
         legacy.get("currentStreak", 0),
@@ -465,7 +462,7 @@ async def get_user_stats(
     )
 
     stats = await analytics_service.get_user_stats(username, excluded_list)
-    data = unified_mapper.stats_from(stats)
+    data = canonical_mapper.stats_from(stats)
     return make_envelope(username, data, legacy=stats)
 
 
