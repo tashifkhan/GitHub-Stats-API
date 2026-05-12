@@ -52,6 +52,7 @@ pygments==2.20.0
     # via github-api
 python-dotenv==1.2.2
     # via github-api
+redis>=5.2.0
 slowapi==0.1.9
     # via github-api
 soupsieve==2.8.4
