@@ -2,8 +2,8 @@ from typing import List
 
 import httpx
 
-from modules.github import OrganizationContribution, PullRequestDetail
-from services.github_service import (
+from models.pull_requests import OrganizationContribution, PullRequestDetail
+from services.pull_requests import (
     get_organization_contributions as fetch_organization_contributions,
     get_user_pull_requests as fetch_user_pull_requests,
 )

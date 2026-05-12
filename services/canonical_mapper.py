@@ -1,35 +1,39 @@
-"""Builds the unified cross-platform card for GitHub (``development`` category).
+"""Builds the canonical cross-platform card for GitHub (``development`` category).
 
 Mapping: total commits -> ``stats.totalSolved``; top languages -> topic analysis;
-the contribution calendar -> heatmap. GitHub has no contests / rating / badges,
-so those sections stay empty. See ../UNIFIED_SCHEMA.md.
+the contribution calendar -> heatmap; scraped profile achievements -> badges.
+GitHub has no contests / rating, so those sections stay empty. See ../CANONICAL_SCHEMA.md.
 """
 
 from datetime import date, timedelta
 from math import ceil
 from typing import Any, Dict, List, Optional
 
-from modules.unified import (
-    HeatDay,
-    TopicCount,
-    UnifiedBadges,
-    UnifiedCard,
-    UnifiedContests,
-    UnifiedHeatmap,
-    UnifiedProfile,
-    UnifiedRating,
-    UnifiedSocial,
-    UnifiedStats,
-    UnifiedSummary,
-    YearContribution,
-)
+from models.canonical.badges import BadgeItem, Badges
+from models.canonical.card import Card
+from models.canonical.contests import Contests
+from models.canonical.heatmap import HeatDay, Heatmap, YearContribution
+from models.canonical.profile import Profile, Social
+from models.canonical.rating import Rating
+from models.canonical.stats import TopicCount, Stats
+from models.canonical.summary import Summary
+from services.heatmap_window import window_heatmap
 
 
-def profile_from(user: Dict[str, Any], username: str) -> UnifiedProfile:
+def profile_from(
+    user: Dict[str, Any],
+    username: str,
+    social_accounts: Optional[List[Dict[str, Any]]] = None,
+) -> Profile:
     user = user or {}
     blog = (user.get("blog") or "").strip()
     twitter = user.get("twitter_username")
-    return UnifiedProfile(
+    linkedin = None
+    for account in social_accounts or []:
+        if (account.get("provider") or "").lower() == "linkedin":
+            linkedin = account.get("url")
+            break
+    return Profile(
         displayName=user.get("name") or user.get("login") or username,
         username=user.get("login") or username,
         avatar=user.get("avatar_url"),
@@ -37,12 +41,26 @@ def profile_from(user: Dict[str, Any], username: str) -> UnifiedProfile:
         company=user.get("company"),
         bio=user.get("bio"),
         websites=[blog] if blog else [],
-        social=UnifiedSocial(
+        social=Social(
             github=user.get("html_url") or f"https://github.com/{username}",
             twitter=f"https://twitter.com/{twitter}" if twitter else None,
+            linkedin=linkedin,
         ),
         verified=False,
     )
+
+
+def badges_from(achievements: Optional[List[Dict[str, Any]]]) -> Badges:
+    items = [
+        BadgeItem(
+            id=a.get("id"),
+            name=a.get("name"),
+            icon=a.get("icon"),
+            level=a.get("level"),
+        )
+        for a in (achievements or [])
+    ]
+    return Badges(count=len(items), active=items[0] if items else None, list=items)
 
 
 def stats_from(
@@ -50,9 +68,9 @@ def stats_from(
     pr_count: int = 0,
     issue_count: int = 0,
     review_count: int = 0,
-) -> UnifiedStats:
+) -> Stats:
     if stats_response is None:
-        return UnifiedStats()
+        return Stats()
     topics = [
         TopicCount(topic=lang.name, count=int(round(lang.percentage)))
         for lang in (stats_response.topLanguages or [])
@@ -65,7 +83,7 @@ def stats_from(
         by_difficulty["issues"] = issue_count
     if review_count:
         by_difficulty["reviews"] = review_count
-    return UnifiedStats(
+    return Stats(
         totalSolved=commits,
         byDifficulty=by_difficulty,
         topicAnalysis=topics,
@@ -99,7 +117,7 @@ def heatmap_from(
     contribution_data: Optional[Dict[str, Any]],
     longest_streak: int = 0,
     current_streak: int = 0,
-) -> UnifiedHeatmap:
+) -> Heatmap:
     date_counts: dict[date, int] = {}
     for date_str, count in _iter_days(contribution_data):
         if not date_str:
@@ -112,7 +130,7 @@ def heatmap_from(
 
     active = {d: c for d, c in date_counts.items() if c > 0}
     if not active:
-        return UnifiedHeatmap(longestStreak=longest_streak, currentStreak=current_streak)
+        return Heatmap(longestStreak=longest_streak, currentStreak=current_streak)
 
     active_dates = sorted(active)
     max_daily = max(active.values())
@@ -123,7 +141,7 @@ def heatmap_from(
         bucket["totalSubmissions"] += count
         bucket["activeDays"] += 1
 
-    return UnifiedHeatmap(
+    return Heatmap(
         totalSubmissions=sum(active.values()),
         totalActiveDays=len(active_dates),
         currentStreak=current_streak,
@@ -142,30 +160,37 @@ def heatmap_from(
     )
 
 
-def summary_from(card: UnifiedCard) -> UnifiedSummary:
-    return UnifiedSummary(
+def summary_from(card: Card) -> Summary:
+    return Summary(
         totalSolved=card.stats.totalSolved,
         totalActiveDays=card.heatmap.totalActiveDays,
-        totalContests=0,
-        badgesCount=0,
     )
 
 
-async def build_card(username: str, analytics_service) -> UnifiedCard:
+async def build_card(username: str, analytics_service) -> Card:
     import asyncio
-    user, stats, pr_count, issue_count, review_count = await asyncio.gather(
+    user, social_accounts, stats, pr_count, issue_count, review_count, achievements = await asyncio.gather(
         analytics_service.get_user_profile(username),
+        analytics_service.get_user_social_accounts(username),
         analytics_service.get_user_stats(username, []),
         analytics_service.get_user_pr_count(username),
         analytics_service.get_user_issue_count(username),
         analytics_service.get_user_review_count(username),
+        analytics_service.get_user_achievements(username),
     )
-    return UnifiedCard(
+    contributions = stats.contributions or {}
+    available_years = sorted((int(y) for y in contributions.keys()), reverse=True) if isinstance(contributions, dict) else None
+    return Card(
         username=username,
-        profile=profile_from(user, username),
+        profile=profile_from(user, username, social_accounts),
         stats=stats_from(stats, pr_count, issue_count, review_count),
-        contests=UnifiedContests(),
-        rating=UnifiedRating(),
-        heatmap=heatmap_from(stats.contributions, stats.longestStreak, stats.currentStreak),
-        badges=UnifiedBadges(),
+        contests=Contests(),
+        rating=Rating(),
+        heatmap=window_heatmap(
+            heatmap_from(stats.contributions, stats.longestStreak, stats.currentStreak),
+            "all",
+            None,
+            available_years=available_years or None,
+        ),
+        badges=badges_from(achievements),
     )

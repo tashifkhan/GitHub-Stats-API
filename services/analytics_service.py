@@ -2,26 +2,31 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from modules.github import (
-    CommitDetail,
-    GitHubStatsResponse,
-    LanguageData,
-    RepoDetail,
-    StarsData,
-)
-from services.github_service import (
+from models.analytics import GitHubStatsResponse, LanguageData
+from models.commits import CommitDetail
+from models.repositories import RepoDetail
+from models.stars import StarsData
+from services.achievements import get_user_achievements
+from services.commits import get_all_commits
+from services.contributions import (
     calculate_current_streak,
     calculate_longest_streak,
     calculate_total_commits,
-    get_all_commits,
     get_contribution_graphs,
-    get_language_stats,
-    get_repo_details,
+)
+from services.languages import get_language_stats
+from services.profile import (
     get_user_pinned_repos,
+    get_user_profile,
+    get_user_social_accounts,
+)
+from services.pull_requests import (
     get_user_pr_count,
     get_user_issue_count,
     get_user_review_count,
-    get_user_profile,
+)
+from services.repositories import get_repo_details
+from services.stars import (
     get_user_starred_lists,
     get_user_stars_data,
 )
@@ -39,6 +44,12 @@ class AnalyticsService:
 
     async def get_user_profile(self, username: str) -> Dict[str, Any]:
         return await get_user_profile(username, self.token)
+
+    async def get_user_social_accounts(self, username: str) -> List[Dict[str, Any]]:
+        return await get_user_social_accounts(username, self.token)
+
+    async def get_user_achievements(self, username: str) -> List[Dict[str, Any]]:
+        return await get_user_achievements(username)
 
     async def get_user_contributions(
         self, username: str, starting_year: Optional[int]
