@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
+from core.middleware import CacheRateLimitMiddleware
 
 app = FastAPI(
     title="GitHub Analytics API",
@@ -34,20 +35,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CacheRateLimitMiddleware, platform="github")
 
 # Routes
 from routes import (
     analytics_router,
+    badges_router,
     docs_router,
+    heatmap_router,
+    profile_router,
     pr_router,
-    unified_router,
+    summary_router,
     # api_router,
 )
 
 app.include_router(docs_router, tags=["Documentation"])
-app.include_router(unified_router, tags=["Unified"])
-app.include_router(analytics_router, tags=["Analytics"])
-app.include_router(pr_router, tags=["PRs"])
+app.include_router(profile_router)
+app.include_router(heatmap_router)
+app.include_router(badges_router)
+app.include_router(summary_router)
+app.include_router(analytics_router)
+app.include_router(pr_router)
 # app.include_router(api_router, tags=["API"])
 
 if __name__ == "__main__":
