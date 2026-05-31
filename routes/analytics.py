@@ -8,11 +8,13 @@ from modules.github import (
     RepoDetail,
     StarsData,
 )
+from modules.unified import make_envelope
 from routes.dependencies import (
     DEFAULT_EXCLUDED_LANGUAGES,
     get_analytics_service,
     parse_excluded_languages,
 )
+from services import unified_mapper
 from services.analytics_service import AnalyticsService
 
 analytics_router = APIRouter()
@@ -113,7 +115,13 @@ async def get_user_contributions(
     ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict:
-    return await analytics_service.get_user_contributions(username, starting_year)
+    legacy = await analytics_service.get_user_contributions(username, starting_year)
+    data = unified_mapper.heatmap_from(
+        legacy.get("contributions"),
+        legacy.get("longestStreak", 0),
+        legacy.get("currentStreak", 0),
+    )
+    return make_envelope(username, data, legacy=legacy)
 
 
 @analytics_router.get(
@@ -374,7 +382,6 @@ async def get_profile_views_count(
     
     This endpoint provides a complete overview of a user's GitHub activity.
     """,
-    response_model=GitHubStatsResponse,
     responses={
         200: {
             "description": "Successfully retrieved user statistics",
@@ -450,14 +457,16 @@ async def get_user_stats(
         description="Legacy list-style language exclusions",
     ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> GitHubStatsResponse:
+):
     excluded_list = parse_excluded_languages(
         exclude=exclude,
         excluded=excluded,
         default=[],
     )
 
-    return await analytics_service.get_user_stats(username, excluded_list)
+    stats = await analytics_service.get_user_stats(username, excluded_list)
+    data = unified_mapper.stats_from(stats)
+    return make_envelope(username, data, legacy=stats)
 
 
 @analytics_router.get(

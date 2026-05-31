@@ -18,6 +18,10 @@ from services.github_service import (
     get_language_stats,
     get_repo_details,
     get_user_pinned_repos,
+    get_user_pr_count,
+    get_user_issue_count,
+    get_user_review_count,
+    get_user_profile,
     get_user_starred_lists,
     get_user_stars_data,
 )
@@ -32,6 +36,9 @@ class AnalyticsService:
         self, username: str, excluded_languages: List[str]
     ) -> List[LanguageData]:
         return await get_language_stats(username, self.token, excluded_languages)
+
+    async def get_user_profile(self, username: str) -> Dict[str, Any]:
+        return await get_user_profile(username, self.token)
 
     async def get_user_contributions(
         self, username: str, starting_year: Optional[int]
@@ -153,3 +160,12 @@ class AnalyticsService:
                     status_code=404, detail="User not found or API error"
                 )
             raise exc
+
+    async def get_user_pr_count(self, username: str) -> int:
+        return await get_user_pr_count(username, self.token)
+
+    async def get_user_issue_count(self, username: str) -> int:
+        return await get_user_issue_count(username, self.token)
+
+    async def get_user_review_count(self, username: str) -> int:
+        return await get_user_review_count(username, self.token)

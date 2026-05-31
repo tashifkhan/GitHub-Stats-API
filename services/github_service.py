@@ -331,6 +331,23 @@ def github_headers(token: str) -> Dict[str, str]:
     return headers
 
 
+async def get_user_profile(username: str, token: str) -> Dict:
+    """Fetch a user's public profile from the GitHub REST API."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{GITHUB_API}/users/{username}",
+            headers=github_headers(token),
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="User not found")
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"GitHub API error: {response.status_code}",
+        )
+    return response.json()
+
+
 def _extract_url_from_description(description: Optional[str]) -> Optional[str]:
     if not description:
         return None
@@ -1045,5 +1062,33 @@ async def get_user_starred_lists(
 
         tasks = [enrich(lst) for lst in lists]
         lists = cast(List[StarredList], await asyncio.gather(*tasks))
+
+
+async def _search_count(query: str, token: str) -> int:
+    """Return total_count from GitHub search API for a given query string."""
+    url = f"{GITHUB_API}/search/issues?q={query}&per_page=1"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(url, headers=github_headers(token))
+            if resp.status_code == 200:
+                return resp.json().get("total_count", 0)
+        except Exception:
+            pass
+    return 0
+
+
+async def get_user_pr_count(username: str, token: str) -> int:
+    """Count all PRs authored by the user across all public repos."""
+    return await _search_count(f"type:pr+author:{username}", token)
+
+
+async def get_user_issue_count(username: str, token: str) -> int:
+    """Count all issues opened by the user across all public repos."""
+    return await _search_count(f"type:issue+author:{username}", token)
+
+
+async def get_user_review_count(username: str, token: str) -> int:
+    """Count PRs reviewed by the user across all public repos."""
+    return await _search_count(f"type:pr+reviewed-by:{username}", token)
 
     return lists
