@@ -40,10 +40,12 @@ from routes import (
     analytics_router,
     docs_router,
     pr_router,
+    unified_router,
     # api_router,
 )
 
 app.include_router(docs_router, tags=["Documentation"])
+app.include_router(unified_router, tags=["Unified"])
 app.include_router(analytics_router, tags=["Analytics"])
 app.include_router(pr_router, tags=["PRs"])
 # app.include_router(api_router, tags=["API"])

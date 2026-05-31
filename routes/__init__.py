@@ -1,6 +1,7 @@
 from .analytics import analytics_router
 from .docs import docs_router
 from .pr import pr_router
+from .unified import unified_router
 
 # from .api import api_router
 
@@ -9,4 +10,5 @@ __all__ = [
     # "api_router",
     "docs_router",
     "pr_router",
+    "unified_router",
 ]
