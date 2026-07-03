@@ -3,16 +3,18 @@ from typing import List, Dict, Optional
 from dataclasses import asdict
 import os
 
-from modules.github import GitHubStatsResponse, RepoDetail, CommitDetail
-from services.github_service import (
-    get_language_stats,
-    get_contribution_graphs,
+from models.analytics import GitHubStatsResponse
+from models.commits import CommitDetail
+from models.repositories import RepoDetail
+from services.commits import get_all_commits as get_user_commit_history
+from services.contributions import (
     calculate_total_commits,
     calculate_longest_streak,
     calculate_current_streak,
-    get_user_repos,
-    get_user_commit_history,
+    get_contribution_graphs,
 )
+from services.languages import get_language_stats
+from services.repositories import get_repo_details as get_user_repos
 
 api_router = APIRouter()
 

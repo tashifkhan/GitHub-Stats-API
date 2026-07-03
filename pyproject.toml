@@ -1,0 +1,26 @@
+[project]
+name = "github-api"
+version = "1.0.0"
+description = "A FastAPI API and dashboard for GitHub user statistics"
+readme = "readme.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.10.0",
+    "beautifulsoup4>=4.13.0",
+    "python-dotenv>=1.0.0",
+    "redis>=5.2.0",
+    "markdown>=3.7",
+    "pygments>=2.18.0",
+    "slowapi>=0.1.9",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]

@@ -1,2705 +1,925 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from utils.md_html_convertor import render_markdown
+import json
+import re
 
-docs_router = APIRouter()
+from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
 
-docs_html_content = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>GitHub Analytics Dashboard and API Documentation</title>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
-            <style>
-                :root {
-                    --primary-color: #e4e4e4;
-                    --secondary-color: #64ffda;
-                    --background-color: #0a192f;
-                    --code-background: #112240;
-                    --text-color: #8892b0;
-                    --heading-color: #ccd6f6;
-                    --card-background: #112240;
-                    --hover-color: #233554;
-                }
-                body {
-                    font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
-                    line-height: 1.6;
-                    color: var(--text-color);
-                    max-width: 1200px;
-                    margin: 0 auto;
-                    padding: 4rem 2rem;
-                    background: var(--background-color);
-                    transition: all 0.25s ease-in-out;
-                }
-                h1, h2, h3 {
-                    color: var(--heading-color);
-                    padding-bottom: 0.75rem;
-                    margin-top: 2rem;
-                    font-weight: 600;
-                    letter-spacing: -0.5px;
-                }
-                h1 {
-                    font-size: clamp(1.8rem, 4vw, 2.5rem);
-                    margin-bottom: 2rem;
-                    border-bottom: 2px solid var(--secondary-color);
-                }
-                
-                /* API Section Styles */
-                .api-section {
-                    border-radius: 12px;
-                    margin: 2.5rem 0;
-                    box-shadow: 0 10px 30px -15px rgba(2,12,27,0.7);
-                    border: 1px solid var(--hover-color);
-                    overflow: hidden;
-                    background: var(--card-background);
-                }
-                .section-header {
-                    padding: 1.5rem;
-                    cursor: pointer;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    transition: background-color 0.2s ease;
-                }
-                .section-header:hover {
-                    background-color: var(--hover-color);
-                }
-                .section-header h2 {
-                    margin: 0;
-                    padding: 0;
-                    border: none;
-                    font-size: 1.6rem; 
-                    color: var(--heading-color);
-                }
-                .section-content {
-                    max-height: 0;
-                    overflow: hidden;
-                    transition: max-height 0.35s ease-out;
-                    padding: 0 1.5rem;
-                }
-                .api-section.active .section-content {
-                    max-height: 10000px; /* Large enough for all content */
-                    padding: 0.5rem 1.5rem 1.5rem;
-                }
-                .section-toggle {
-                    font-size: 1.8rem;
-                    font-weight: bold;
-                    color: var(--secondary-color);
-                    transition: transform 0.3s ease;
-                }
-                .api-section.active .section-toggle {
-                    transform: rotate(180deg);
-                }
-                
-                .endpoint {
-                    background: #172a45;
-                    border-radius: 12px;
-                    padding: 0;
-                    margin: 1.5rem 0;
-                    box-shadow: 0 10px 30px -15px rgba(2,12,27,0.7);
-                    border: 1px solid var(--hover-color);
-                    transition: all 0.2s ease-in-out;
-                    overflow: hidden;
-                }
-                .endpoint-header {
-                    padding: 1.5rem;
-                    cursor: pointer;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    transition: background-color 0.2s ease;
-                }
-                .endpoint-header:hover {
-                    background-color: var(--hover-color);
-                }
-                .endpoint-header h2 {
-                    margin: 0;
-                    padding: 0;
-                    border: none;
-                    font-size: 1.1rem;
-                    display: flex;
-                    align-items: center;
-                }
-                .endpoint-header h2 .path {
-                    margin-left: 0.5rem;
-                    margin-right: 0.5rem;
-                    font-weight: 600;
-                }
-                .endpoint-content {
-                    max-height: 0;
-                    overflow: hidden;
-                    transition: max-height 0.3s ease;
-                    padding: 0 1.5rem;
-                }
-                .endpoint.active .endpoint-content {
-                    max-height: 5000px; /* Large enough to show all content */
-                    padding: 0 1.5rem 1.5rem;
-                }
-                .endpoint-toggle {
-                    font-size: 1.5rem;
-                    font-weight: bold;
-                    color: var(--secondary-color);
-                    transition: transform 0.3s ease;
-                }
-                .endpoint.active .endpoint-toggle {
-                    transform: rotate(45deg);
-                }
-                code {
-                    background: var(--code-background);
-                    color: var(--secondary-color);
-                    padding: 0.3rem 0.6rem;
-                    border-radius: 6px;
-                    font-family: 'SF Mono', 'Fira Code', monospace;
-                    font-size: 0.85em;
-                    word-break: break-word;
-                    white-space: pre-wrap;
-                }
-                pre {
-                    background: var(--code-background);
-                    padding: 1.5rem;
-                    border-radius: 12px;
-                    overflow-x: auto;
-                    margin: 1.5rem 0;
-                    border: 1px solid var(--hover-color);
-                    position: relative;
-                }
-                pre code {
-                    padding: 0;
-                    background: none;
-                    color: var(--primary-color);
-                    font-size: 0.9em;
-                }
-                .parameter {
-                    margin: 1.5rem 0;
-                    padding: 1.25rem;
-                    background: var(--hover-color);
-                    border-radius: 8px;
-                    box-shadow: 0 4px 12px -6px rgba(2,12,27,0.4);
-                    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-                }
-                .parameter:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 16px -6px rgba(2,12,27,0.5);
-                }
-                .parameter code {
-                    font-size: 0.95em;
-                    font-weight: 500;
-                    margin-right: 0.5rem;
-                }
-                .error-response {
-                    padding: 1.25rem;
-                    margin: 1.25rem 0;
-                    background: var(--hover-color);
-                    border-radius: 8px;
-                    overflow-x: auto;
-                }
-                .note {
-                    background: var(--hover-color);
-                    padding: 1.25rem;
-                    margin: 1.25rem 0;
-                    border-radius: 8px;
-                }
-                @media (max-width: 768px) {
-                    body {
-                        padding: 2rem 1rem;
-                    }
-                    .section-header {
-                        padding: 1.25rem;
-                    }
-                    .section-header h2 {
-                        font-size: 1.4rem;
-                    }
-                    .endpoint-header {
-                        padding: 1.25rem;
-                    }
-                    .endpoint-header h2 {
-                        font-size: 1rem;
-                        flex-direction: column;
-                        align-items: flex-start;
-                    }
-                    .endpoint-header h2 .path {
-                        margin-left: 0;
-                        margin-top: 0.25rem;
-                        margin-bottom: 0.25rem;
-                    }
-                    pre {
-                        padding: 1rem;
-                        font-size: 0.9em;
-                    }
-                    code {
-                        font-size: 0.8em;
-                    }
-                    .stalker-form {
-                        padding: 1.5rem;
-                    }
-                    .profile-section {
-                        padding: 1.5rem;
-                    }
-                    #contribution-chart-container {
-                        height: 30vh;
-                    }
-                    .input-group {
-                        flex-direction: column;
-                    }
-                    
-                    .input-container {
-                        width: 100%;
-                    }
-                    
-                    .clear-history-btn {
-                        right: 0.75rem;
-                    }
-                    
-                    .history-dropdown {
-                        max-height: 250px;
-                    }
-                    
-                    .history-list {
-                        max-height: 200px;
-                    }
-                    
-                    .profile-cards {
-                        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    }
-                    
-                    .repos-grid {
-                        grid-template-columns: 1fr;
-                    }
-                    
-                    .contribution-graph {
-                        grid-template-columns: repeat(26, 1fr);
-                    }
-                }
-                @media (max-width: 480px) {
-                    body {
-                        padding: 1.5rem 0.75rem;
-                    }
-                    .section-header {
-                        padding: 1rem;
-                    }
-                    .section-header h2 {
-                        font-size: 1.3rem;
-                    }
-                    .endpoint-header {
-                        padding: 1rem;
-                    }
-                    .endpoint-header h2 {
-                        font-size: 0.9rem;
-                    }
-                    h1 {
-                        font-size: 1.6rem;
-                    }
-                    pre {
-                        padding: 0.75rem;
-                        font-size: 0.85em;
-                    }
-                    .parameter, .error-response, .note {
-                        padding: 1rem;
-                        margin: 1rem 0;
-                    }
-                    .stalker-form {
-                        padding: 1rem;
-                    }
-                    .profile-section {
-                        padding: 1rem;
-                    }
-                    .profile-card {
-                        padding: 1rem;
-                    }
-                    .card-value {
-                        font-size: 1.8rem;
-                    }
-                    .repo-card {
-                        padding: 1rem;
-                    }
-                }
-                .method {
-                    color: #ff79c6;
-                    font-weight: bold;
-                }
-                .path {
-                    color: var(--secondary-color);
-                }
-                .endpoint-method {
-                    display: inline-block;
-                    padding: 0.3rem 0.5rem;
-                    background: #ff79c6;
-                    color: var(--background-color);
-                    border-radius: 4px;
-                    font-weight: bold;
-                    margin-right: 0.5rem;
-                }
-                ::selection {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                }
-                .error-section {
-                    margin: 2rem 0;
-                }
-                .error-section h2 {
-                    border-bottom: 2px solid var(--secondary-color);
-                    padding-bottom: 0.75rem;
-                }
-                .error-item {
-                    margin-bottom: 1rem;
-                }
-                .error-toggle {
-                    cursor: pointer;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 1rem;
-                    background: var(--card-background);
-                    border-radius: 8px;
-                    margin-bottom: 1rem;
-                    border: 1px solid var(--hover-color);
-                }
-                .error-toggle:hover {
-                    background: var(--hover-color);
-                }
-                .error-toggle h3 {
-                    margin: 0;
-                    padding: 0;
-                    border: none;
-                }
-                .error-content {
-                    max-height: 0;
-                    overflow: hidden;
-                    transition: max-height 0.3s ease;
-                }
-                .error-item.active .error-content {
-                    max-height: 1000px;
-                }
-                .error-toggle-icon {
-                    font-size: 1.5rem;
-                    font-weight: bold;
-                    color: var(--secondary-color);
-                    transition: transform 0.3s ease;
-                }
-                .error-item.active .error-toggle-icon {
-                    transform: rotate(45deg);
-                }
-                footer {
-                    margin-top: 3rem;
-                    padding-top: 1.5rem;
-                    border-top: 1px solid var(--hover-color);
-                    text-align: center;
-                    color: var(--text-color);
-                    font-size: 0.9em;
-                }
-                
-                /* GitHub Profile Stalker Styles */
-                .stalker-form {
-                    background: var(--card-background);
-                    border-radius: 12px;
-                    padding: 2rem;
-                    margin: 2rem 0;
-                    border: 1px solid var(--hover-color);
-                    text-align: center;
-                }
-                
-                .stalker-form h3 {
-                    margin-bottom: 1.5rem;
-                    color: var(--heading-color);
-                }
-                
-                .input-group {
-                    display: flex;
-                    gap: 1rem;
-                    max-width: 500px;
-                    margin: 0 auto;
-                }
-                
-                .input-container {
-                    position: relative;
-                    flex: 1;
-                    display: flex;
-                    align-items: center;
-                }
-                
-                .input-container input {
-                    width: 100%;
-                    padding: 0.75rem 2.5rem 0.75rem 1rem;
-                    border: 2px solid var(--hover-color);
-                    border-radius: 8px;
-                    background: var(--code-background);
-                    color: var(--text-color);
-                    font-family: inherit;
-                    font-size: 1rem;
-                    transition: border-color 0.2s ease;
-                }
-                
-                .input-container input:focus {
-                    outline: none;
-                    border-color: var(--secondary-color);
-                }
-                
-                .clear-history-btn {
-                    position: absolute;
-                    right: 0.5rem;
-                    background: none;
-                    border: none;
-                    color: var(--text-color);
-                    cursor: pointer;
-                    padding: 0.25rem;
-                    border-radius: 4px;
-                    transition: all 0.2s ease;
-                    opacity: 0.7;
-                }
-                
-                .clear-history-btn:hover {
-                    opacity: 1;
-                    color: var(--secondary-color);
-                    background: var(--hover-color);
-                }
-                
-                .clear-history-btn .icon {
-                    width: 1rem;
-                    height: 1rem;
-                }
-                
-                .input-group input {
-                    flex: 1;
-                    padding: 0.75rem 1rem;
-                    border: 2px solid var(--hover-color);
-                    border-radius: 8px;
-                    background: var(--code-background);
-                    color: var(--text-color);
-                    font-family: inherit;
-                    font-size: 1rem;
-                    transition: border-color 0.2s ease;
-                }
-                
-                .input-group input:focus {
-                    outline: none;
-                    border-color: var(--secondary-color);
-                }
-                
-                .stalk-button {
-                    padding: 0.75rem 1.5rem;
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                    border: none;
-                    border-radius: 8px;
-                    font-family: inherit;
-                    font-size: 1rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                
-                .stalk-button:hover {
-                    background: #4cd4b0;
-                    transform: translateY(-2px);
-                }
-                
-                .loading {
-                    text-align: center;
-                    margin: 2rem 0;
-                }
-                
-                .spinner {
-                    width: 40px;
-                    height: 40px;
-                    border: 4px solid var(--hover-color);
-                    border-top: 4px solid var(--secondary-color);
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                    margin: 0 auto 1rem;
-                }
-                
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-                
-                .profile-results {
-                    margin-top: 2rem;
-                }
-                
-                .profile-section {
-                    background: var(--card-background);
-                    border-radius: 12px;
-                    padding: 2rem;
-                    margin: 2rem 0;
-                    border: 1px solid var(--hover-color);
-                }
-                
-                .profile-section h3 {
-                    margin-bottom: 1.5rem;
-                    color: var(--heading-color);
-                    border-bottom: 2px solid var(--secondary-color);
-                    padding-bottom: 0.5rem;
-                }
-                
-                .profile-cards {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 1.5rem;
-                }
-                
-                .profile-card {
-                    background: var(--hover-color);
-                    border-radius: 12px;
-                    padding: 1.5rem;
-                    text-align: center;
-                    transition: transform 0.2s ease, box-shadow 0.2s ease;
-                }
-                
-                .profile-card:hover {
-                    transform: translateY(-4px);
-                    box-shadow: 0 8px 25px rgba(2,12,27,0.3);
-                }
-                
-                .card-icon {
-                    font-size: 2rem;
-                    margin-bottom: 1rem;
-                }
-                
-                .icon {
-                    width: 1em;
-                    height: 1em;
-                    vertical-align: middle;
-                    margin-right: 0.5rem;
-                }
-                
-                .card-icon .icon {
-                    width: 2rem;
-                    height: 2rem;
-                    margin-right: 0;
-                    color: var(--secondary-color);
-                }
-                
-                .profile-section h3 .icon {
-                    width: 1.2rem;
-                    height: 1.2rem;
-                    margin-right: 0.5rem;
-                    color: var(--secondary-color);
-                }
-                
-                .stalk-button .icon {
-                    width: 1rem;
-                    height: 1rem;
-                    margin-right: 0.5rem;
-                }
-                
-                .card-content h4 {
-                    color: var(--text-color);
-                    margin-bottom: 0.5rem;
-                    font-size: 0.9rem;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-                
-                .card-value {
-                    color: var(--secondary-color);
-                    font-size: 2rem;
-                    font-weight: 700;
-                }
-                
-                .languages-chart {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1rem;
-                }
-                
-                .language-bar {
-                    background: var(--hover-color);
-                    border-radius: 8px;
-                    padding: 1rem;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                
-                .language-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 1rem;
-                }
-                
-                .language-color {
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 50%;
-                    border: 2px solid var(--text-color);
-                }
-                
-                .language-name {
-                    font-weight: 600;
-                    color: var(--heading-color);
-                }
-                
-                .language-percentage {
-                    color: var(--secondary-color);
-                    font-weight: 600;
-                }
-                
-                .contribution-graph {
-                    display: grid;
-                    grid-template-columns: repeat(53, 1fr);
-                    gap: 2px;
-                    max-width: 100%;
-                    overflow-x: auto;
-                    padding: 1rem 0;
-                }
-                
-                .contribution-day {
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 2px;
-                    background: var(--hover-color);
-                    transition: transform 0.2s ease;
-                }
-                
-                .contribution-day:hover {
-                    transform: scale(1.5);
-                }
-                
-                .contribution-day[data-level="0"] { background: #ebedf0; }
-                .contribution-day[data-level="1"] { background: #9be9a8; }
-                .contribution-day[data-level="2"] { background: #40c463; }
-                .contribution-day[data-level="3"] { background: #30a14e; }
-                .contribution-day[data-level="4"] { background: #216e39; }
-                
-                .repos-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                    gap: 1.5rem;
-                }
-                
-                .repo-card {
-                    background: var(--hover-color);
-                    border-radius: 12px;
-                    padding: 1.5rem;
-                    border: 1px solid var(--card-background);
-                    transition: transform 0.2s ease, box-shadow 0.2s ease;
-                }
-                
-                .repo-card:hover {
-                    transform: translateY(-4px);
-                    box-shadow: 0 8px 25px rgba(2,12,27,0.3);
-                }
-                
-                .repo-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 1rem;
-                }
-                
-                .repo-name {
-                    color: var(--secondary-color);
-                    font-weight: 600;
-                    font-size: 1.1rem;
-                    text-decoration: none;
-                }
-                
-                .repo-name:hover {
-                    text-decoration: underline;
-                }
-                
-                .repo-stars {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                    padding: 0.25rem 0.5rem;
-                    border-radius: 4px;
-                    font-size: 0.8rem;
-                    font-weight: 600;
-                }
-                
-                .repo-description {
-                    color: var(--text-color);
-                    margin-bottom: 1rem;
-                    line-height: 1.5;
-                }
-                
-                .repo-meta {
-                    display: flex;
-                    gap: 1rem;
-                    font-size: 0.9rem;
-                    color: var(--text-color);
-                    align-items: center;
-                }
-                .repo-meta .repo-badge {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                    font-weight: bold;
-                    border-radius: 6px;
-                    padding: 0.2rem 0.7rem;
-                    font-size: 0.95em;
-                    margin-right: 0.5rem;
-                    letter-spacing: 0.5px;
-                }
-                .repo-meta .date-badge {
-                    background: #233554;
-                    color: var(--secondary-color);
-                    border-radius: 6px;
-                    padding: 0.2rem 0.7rem;
-                    font-size: 0.95em;
-                    margin-right: 0.5rem;
-                }
-                
-                .repo-language {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                }
-                
-                .repo-language-dot {
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: var(--secondary-color);
-                }
-                
-                .commits-list {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1rem;
-                }
-                
-                .commit-item {
-                    background: var(--hover-color);
-                    border-radius: 8px;
-                    padding: 1rem;
-                    border-left: 4px solid var(--secondary-color);
-                }
-                
-                .commit-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 0.5rem;
-                }
-                
-                .commit-repo {
-                    color: var(--secondary-color);
-                    font-weight: 600;
-                    font-size: 0.9rem;
-                }
-                
-                .commit-date {
-                    color: var(--text-color);
-                    font-size: 0.8rem;
-                }
-                
-                .commit-message {
-                    color: var(--heading-color);
-                    line-height: 1.4;
-                }
-                
-                .error-message {
-                    background: #ff6b6b;
-                    color: white;
-                    padding: 1rem;
-                    border-radius: 8px;
-                    text-align: center;
-                    margin: 1rem 0;
-                }
-                
-                @media (max-width: 768px) {
-                    .input-group {
-                        flex-direction: column;
-                    }
-                    
-                    .profile-cards {
-                        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    }
-                    
-                    .repos-grid {
-                        grid-template-columns: 1fr;
-                    }
-                    
-                    .contribution-graph {
-                        grid-template-columns: repeat(26, 1fr);
-                    }
-                }
-                
-                /* Custom Dropdown Styles */
-                .history-dropdown {
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: var(--card-background);
-                    border: 1px solid var(--hover-color);
-                    border-top: none;
-                    border-radius: 0 0 8px 8px;
-                    box-shadow: 0 8px 25px rgba(2,12,27,0.3);
-                    z-index: 1000;
-                    opacity: 0;
-                    visibility: hidden;
-                    transform: translateY(-10px);
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                    max-height: 300px;
-                    overflow: hidden;
-                }
-                
-                .history-dropdown.active {
-                    opacity: 1;
-                    visibility: visible;
-                    transform: translateY(0);
-                }
-                
-                .dropdown-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 0.75rem 1rem;
-                    border-bottom: 1px solid var(--hover-color);
-                    background: var(--hover-color);
-                }
-                
-                .dropdown-header span {
-                    color: var(--heading-color);
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                }
-                
-                .clear-all-btn {
-                    background: none;
-                    border: none;
-                    color: var(--text-color);
-                    cursor: pointer;
-                    padding: 0.25rem;
-                    border-radius: 4px;
-                    transition: all 0.2s ease;
-                    opacity: 0.7;
-                }
-                
-                .clear-all-btn:hover {
-                    opacity: 1;
-                    color: var(--secondary-color);
-                    background: var(--card-background);
-                }
-                
-                .clear-all-btn .icon {
-                    width: 1rem;
-                    height: 1rem;
-                }
-                
-                .history-list {
-                    max-height: 250px;
-                    overflow-y: auto;
-                }
-                
-                .history-item {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 0.75rem 1rem;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    border-bottom: 1px solid rgba(136, 146, 176, 0.1);
-                }
-                
-                .history-item:last-child {
-                    border-bottom: none;
-                }
-                
-                .history-item:hover {
-                    background: var(--hover-color);
-                }
-                
-                .history-item.selected {
-                    background: var(--secondary-color);
-                    color: var(--background-color);
-                }
-                
-                .history-username {
-                    color: var(--text-color);
-                    font-weight: 500;
-                    flex: 1;
-                }
-                
-                .history-item:hover .history-username,
-                .history-item.selected .history-username {
-                    color: inherit;
-                }
-                
-                .history-delete-btn {
-                    background: none;
-                    border: none;
-                    color: var(--text-color);
-                    cursor: pointer;
-                    padding: 0.25rem;
-                    border-radius: 4px;
-                    transition: all 0.2s ease;
-                    opacity: 0;
-                    margin-left: 0.5rem;
-                }
-                
-                .history-item:hover .history-delete-btn {
-                    opacity: 0.7;
-                }
-                
-                .history-delete-btn:hover {
-                    opacity: 1 !important;
-                    color: #ff6b6b;
-                    background: rgba(255, 107, 107, 0.1);
-                }
-                
-                .history-delete-btn .icon {
-                    width: 0.8rem;
-                    height: 0.8rem;
-                }
-                
-                .history-empty {
-                    padding: 1rem;
-                    text-align: center;
-                    color: var(--text-color);
-                    font-style: italic;
-                    opacity: 0.7;
-                }
-                
-                /* Scrollbar styling for dropdown */
-                .history-list::-webkit-scrollbar {
-                    width: 6px;
-                }
-                
-                .history-list::-webkit-scrollbar-track {
-                    background: var(--code-background);
-                }
-                
-                .history-list::-webkit-scrollbar-thumb {
-                    background: var(--hover-color);
-                    border-radius: 3px;
-                }
-                
-                .history-list::-webkit-scrollbar-thumb:hover {
-                    background: var(--secondary-color);
-                }
-                
-                .input-group input {
-                    flex: 1;
-                    padding: 0.75rem 1rem;
-                    border: 2px solid var(--hover-color);
-                    border-radius: 8px;
-                    background: var(--code-background);
-                    color: var(--text-color);
-                    font-family: inherit;
-                    font-size: 1rem;
-                    transition: border-color 0.2s ease;
-                }
-                
-                .input-group input:focus {
-                    outline: none;
-                    border-color: var(--secondary-color);
-                }
+router = APIRouter(tags=["Documentation"])
+docs_router = router
 
-                .repo-description img, .markdown-img {
-                    max-width: 100%;
-                    width: 100%;
-                    height: auto;
-                    object-fit: contain;
-                    max-height: 400px;
-                    display: block;
-                    margin: 1rem auto;
-                    border-radius: 0.5rem;
-                    border: 1px solid #334155;
-                    background: #0a192f;
-                }
-            </style>
-        </head>
-        <body>
-            <h1>GitHub Analytics Dashboard</h1>
-            
-            <p>An interactive dashboard for in-depth analysis of GitHub user statistics. Use the dashboard below to get a comprehensive look at any user's profile, including contribution history, language stats, and repository details.</p>
+PLATFORM = 'GitHub'
+ACCENT = '#3fb950'
+DESCRIPTION = 'Development analytics for GitHub profiles, repositories, commits, stars, pull requests, and contribution heatmaps.'
+PARAM = 'username'
+TRY_PATH = '/demo/profile'
+SAMPLE = TRY_PATH.strip("/").split("/")[0]
+PLATFORM_KEY = 'github'
+REPO = 'tashifkhan/GitHub-Stats-API'
+CODETRACE_URL = 'https://codetrace.tashif.codes'
+CANONICAL_ENDPOINTS = [
+    ('GET', '/{username}', 'Summary'),
+    ('GET', '/{username}/profile', 'Profile'),
+    ('GET', '/{username}/stats', 'Commit totals and language topics'),
+    ('GET', '/{username}/heatmap', 'Contribution heatmap'),
+    ('GET', '/{username}/badges', 'Profile achievements'),
+    ('GET', '/{username}/languages', 'Top language stats'),
+    ('GET', '/{username}/contributions', 'Contribution payload'),
+    ('GET', '/{username}/repos', 'Repository details'),
+    ('GET', '/{username}/commits', 'Commit history'),
+    ('GET', '/{username}/stars', 'Stars summary'),
+    ('GET', '/{username}/me/pulls', 'Owned repository PRs'),
+    ('GET', '/{username}/org-contributions', 'Organization contributions'),
+    ('GET', '/{username}/prs', 'External PRs'),
+]
+LEGACY_ENDPOINTS = []
 
-            <!-- Interactive Dashboard -->
-            <div class="stalker-form">
-                <h3>Explore a GitHub Profile</h3>
-                <div class="input-group">
-                    <div class="input-container">
-                        <input type="text" id="github-username" placeholder="Enter GitHub username (e.g., tashifkhan)" autocomplete="off" />
-                        <button type="button" id="clear-history" class="clear-history-btn" title="Clear search history">
-                            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                            </svg>
-                        </button>
-                        <div id="history-dropdown" class="history-dropdown">
-                            <div class="dropdown-header">
-                                <span>Recent Searches</span>
-                                <button type="button" id="clear-all-history" class="clear-all-btn" title="Clear all history">
-                                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M19 13H5v-2h14v2z"/>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div id="history-list" class="history-list"></div>
-                        </div>
-                    </div>
-                    <button onclick="stalkGitHubUser()" class="stalk-button">
-                        <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                        Analyze Profile
-                    </button>
-                </div>
-                <div id="loading" class="loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <p>Fetching GitHub data...</p>
-                </div>
-            </div>
+# ── Shared Command-Code-style design system (identical across every platform) ──
 
-            <div id="profile-results" class="profile-results" style="display: none;">
-                <!-- Profile Overview -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg> Profile Overview</h3>
-                    <div class="profile-cards">
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Total Commits</h4>
-                                <div id="total-commits" class="card-value">-</div>
-                            </div>
-                        </div>
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Longest Streak</h4>
-                                <div id="longest-streak" class="card-value">-</div>
-                            </div>
-                        </div>
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.5 2.54l2.6 1.53c.56-1.24.9-2.62.9-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.05.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.06-4.09l-2.6-1.53C16.17 17.98 14.21 19 12 19z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Current Streak</h4>
-                                <div id="current-streak" class="card-value">-</div>
-                            </div>
-                        </div>
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Profile Views</h4>
-                                <div id="profile-views" class="card-value">-</div>
-                            </div>
-                        </div>
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Total Stars</h4>
-                                <div id="total-stars" class="card-value">-</div>
-                            </div>
-                        </div>
-                        <div class="profile-card">
-                            <div class="card-icon">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
-                            </div>
-                            <div class="card-content">
-                                <h4>Repositories</h4>
-                                <div id="total-repos" class="card-value">-</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+_BASE_CSS = """
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#000;--panel:#0a0a0c;--panel-2:#121214;
+  --ink:#fafafa;--muted:#9b9ba4;--faint:#6b6b73;
+  --line:#1f1f22;--line-2:#2a2a2f;--guide:rgba(255,255,255,.12);
+  --accent-ink:#050506;--r:6px;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;
+}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+::selection{background:color-mix(in srgb,var(--accent) 38%,transparent)}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
 
-                <!-- Top Languages -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> Top Programming Languages</h3>
-                    <div id="languages-chart" class="languages-chart"></div>
-                </div>
+.topbar{position:sticky;top:0;z-index:50;height:54px;display:flex;align-items:center;gap:14px;padding:0 20px;
+  background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:14.5px}
+.brand .glyph{display:grid;place-items:center;width:24px;height:24px;border-radius:var(--r);background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:800;text-transform:uppercase}
+.brand .glyph svg{width:15px;height:15px}
+.brand .sub{color:var(--faint);font-weight:500}
+.topnav{margin-left:auto;display:flex;align-items:center;gap:2px}
+.topnav a{padding:6px 11px;border-radius:var(--r);color:var(--muted);font-size:13px;font-weight:500;transition:.15s}
+.topnav a:hover{color:var(--ink);background:var(--panel-2)}
+.topnav a.cta{color:var(--accent-ink);background:var(--accent);font-weight:600}
+.topnav a.cta:hover{filter:brightness(1.08)}
+.topnav a.icon{display:grid;place-items:center;width:32px;height:32px;padding:0;color:var(--muted);border:1px solid var(--line);border-radius:var(--r)}
+.topnav a.icon:hover{color:var(--ink);background:var(--panel-2);border-color:var(--line-2)}
+.topnav a.icon svg{width:16px;height:16px}
 
-                <!-- Contribution Graph -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg> Contribution Graph</h3>
-                    <div id="contribution-chart-container" style="position: relative; height: 30vh;">
-                        <canvas id="contribution-chart"></canvas>
-                    </div>
-                </div>
+.wrap{display:grid;grid-template-columns:262px minmax(0,1fr) 224px;max-width:1480px;margin:0 auto}
+aside.side{position:sticky;top:54px;align-self:start;height:calc(100vh - 54px);overflow:auto;padding:22px 14px 48px;border-right:1px solid var(--line)}
+.search{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);color:var(--faint);font-size:13px;margin-bottom:20px}
+.search svg{flex:none;opacity:.7}
+.search input{border:0;background:transparent;color:var(--ink);font-family:var(--sans);font-size:13px;width:100%;outline:none}
+.search kbd{font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.navgroup{margin-bottom:20px}
+.navgroup h4{margin:0 0 6px;padding:0 8px;font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+.navgroup a{display:block;padding:6px 10px;border-radius:var(--r);color:var(--muted);font-size:13.5px;transition:.12s;outline:none;-webkit-tap-highlight-color:transparent}
+.navgroup a:focus,.navgroup a:focus-visible{outline:none;box-shadow:none}
+.navgroup a:hover{color:var(--ink);background:var(--panel-2)}
+.navgroup a.active{color:var(--ink);background:color-mix(in srgb,var(--accent) 13%,transparent)}
 
-                <!-- Pinned Repositories -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l4 4-3 3 6 6-2 2-6-6-3 3-4-4 8-8z"/></svg> Pinned Repositories</h3>
-                    <div id="pinned-repos" class="repos-grid"></div>
-                </div>
+main.doc{min-width:0;padding:42px 52px 96px}
+.eyebrow{color:var(--accent);font-family:var(--mono);font-size:12px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:13px}
+h1.title{font-size:clamp(32px,4.4vw,46px);line-height:1.05;letter-spacing:-.025em;margin:0 0 16px;font-weight:700}
+.lede{color:var(--muted);font-size:17px;line-height:1.7;max-width:660px;margin:0 0 4px}
+.metarow{display:flex;flex-wrap:wrap;gap:7px;margin:22px 0 6px}
+.chip{font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:var(--r);padding:4px 10px;background:var(--panel)}
 
-                <!-- Top Repositories -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> Top Starred Repositories</h3>
-                    <div id="top-repos" class="repos-grid"></div>
-                </div>
+.steps{position:relative;margin-top:10px;padding-left:34px;border-left:1px dashed var(--guide)}
+.section{padding-top:48px;scroll-margin-top:78px}
+.section-head{position:relative;display:flex;align-items:center;gap:13px;margin-bottom:14px}
+.step{position:absolute;left:-49px;top:-2px;display:grid;place-items:center;width:30px;height:30px;border-radius:var(--r);
+  background:var(--bg);border:1px solid var(--line-2);color:var(--ink);font-family:var(--mono);font-weight:600;font-size:13.5px}
+.section-head h2{margin:0;font-size:21px;letter-spacing:-.02em;font-weight:650}
+.section p{color:var(--muted);max-width:660px;margin:0 0 4px}
+.section a.link{color:var(--accent);border-bottom:1px solid color-mix(in srgb,var(--accent) 45%,transparent)}
 
-                <!-- Starred Lists -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg> Starred Lists</h3>
-                    <div id="star-lists" class="repos-grid"></div>
-                </div>
+.code{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;margin:16px 0;max-width:740px}
+.code::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:2px;background:var(--accent);z-index:1}
+.code .cap{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted)}
+.code .cap .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:.85}
+.code .copy{margin-left:auto;cursor:pointer;color:var(--faint);font-size:11px;font-family:var(--mono);border:1px solid var(--line);border-radius:5px;padding:3px 8px;background:transparent}
+.code .copy:hover{color:var(--ink);border-color:var(--line-2)}
+.code pre{margin:0;padding:15px 16px;overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.7;color:#d6d6dc}
+.code.small pre{font-size:12.5px;max-height:360px}
+.code .cmt{color:var(--faint)}
 
-                <!-- Recent Commits -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> Recent Commits</h3>
-                    <div id="recent-commits" class="commits-list"></div>
-                </div>
+.callout{position:relative;display:flex;gap:11px;border:1px solid var(--line);border-radius:var(--r);background:color-mix(in srgb,var(--accent) 6%,var(--panel));padding:13px 15px 13px 18px;margin:16px 0;max-width:740px}
+.callout::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:2px;background:var(--accent)}
+.callout .ic{flex:none;color:var(--accent);font-weight:700;font-family:var(--mono)}
+.callout .t{color:var(--accent);font-weight:600;font-size:13px}
+.callout p{margin:3px 0 0;color:var(--muted);font-size:14px}
+.callout b{color:var(--ink)}
 
-                <!-- PRs and Org Contributions (NEW: moved here) -->
-                <div class="profile-section">
-                    <div id="user-pulls">
-                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7v4H5V7H3v10h2v-4h14v4h2V7h-2zm0-2c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2h14zm-7 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg> Pull Requests in Own Repositories</h3>
-                    </div>
-                    <div id="org-contributions">
-                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6 0 2.22 1.21 4.15 3 5.19V17h6v-1.81c1.79-1.04 3-2.97 3-5.19 0-3.31-2.69-6-6-6z"/></svg> Organizations Contributed To</h3>
-                    </div>
-                    <div id="external-prs">
-                        <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v-2c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2zm-2 8H6V7h8v10zm2-4h2v2h-2v-2zm0-4h2v2h-2V9z"/></svg> Pull Requests in Other People's Repositories</h3>
-                    </div>
-                </div>
+.eps{display:grid;gap:8px;margin:16px 0;max-width:760px}
+.ep{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;transition:border-color .15s}
+.ep.open{border-color:color-mix(in srgb,var(--accent) 28%,var(--line))}
+.ep.open::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:2px;background:var(--accent);z-index:3}
+.ep-head{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:transparent;border:0;color:inherit;cursor:pointer;padding:12px 14px;font:inherit}
+.ep-head:hover{background:var(--panel-2)}
+.ep.open .ep-head{background:var(--panel-2)}
+.ep .verb{font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.04em;color:var(--accent-ink);background:var(--accent);border-radius:4px;padding:3px 8px}
+.ep-path{font-family:var(--mono);font-size:13.5px;color:var(--ink)}
+.ep-desc{margin-left:auto;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%}
+.chev{flex:none;color:var(--faint);font-family:var(--mono);transition:.2s;transform:rotate(0)}
+.ep.open .chev{transform:rotate(90deg);color:var(--accent)}
+.ep-body{display:none;padding:2px 15px 16px;border-top:1px solid var(--line)}
+.ep.open .ep-body{display:block}
+.ep-sub{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--faint);margin:15px 0 8px;font-weight:600}
+.ep-note{color:var(--muted);font-size:13px;margin:4px 0}
+.ptable{width:100%;border-collapse:collapse;font-size:13px}
+.ptable th{text-align:left;color:var(--faint);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.07em;padding:6px 10px;border-bottom:1px solid var(--line)}
+.ptable td{padding:8px 10px;border-bottom:1px solid var(--line);color:var(--muted);vertical-align:top}
+.ptable tr:last-child td{border-bottom:0}
+.ptable td code{font-family:var(--mono);color:var(--ink)}
+.req{font-family:var(--mono);font-size:11px;color:var(--accent)}
 
-                <!-- All Repositories -->
-                <div class="profile-section">
-                    <h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg> All Repositories</h3>
-                    <div id="all-repos" class="repos-grid"></div>
-                </div>
-            </div>
-            
-            <!-- API Documentation -->
-            <div id="api-docs-container" style="margin-top: 3rem;">
-                <h1>API Documentation</h1>
-                <p>
-                    This dashboard is powered by the GitHub Analytics API. You can use it directly in your own projects.
-                    For interactive API exploration, see
-                    <a href="/docs" style="color: var(--secondary-color);">Swagger UI</a> or
-                    <a href="/redoc" style="color: var(--secondary-color);">ReDoc</a>.
-                </p>
+code.ic{font-family:var(--mono);font-size:.86em;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--ink)}
 
-                <!-- General Section -->
-                <div class="api-section">
-                    <div class="section-header">
-                        <h2>General</h2>
-                        <span class="section-toggle">&#9660;</span>
-                    </div>
-                    <div class="section-content">
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/</code> Custom API Documentation</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Provides this custom HTML documentation page for the API.</p>
-                                <p>For interactive API exploration and testing, you can use:
-                                    <ul>
-                                        <li>Swagger UI: <a href="/docs" style="color: var(--secondary-color);">/docs</a></li>
-                                        <li>ReDoc: <a href="/redoc" style="color: var(--secondary-color);">/redoc</a></li>
-                                    </ul>
-                                </p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html&gt;
-    &lt;head&gt;...&lt;/head&gt;
-    &lt;body&gt;... API Documentation ...&lt;/body&gt;
-&lt;/html&gt;</code></pre>
-                                </div>
-                            </div>
-                        </div>
+.foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;color:var(--faint);font-size:13px}
+.foot a{color:var(--muted)}.foot a:hover{color:var(--ink)}
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/docs</code> Swagger UI API Documentation</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Provides interactive API documentation using Swagger UI. This interface allows you to explore endpoints, view models, and test API calls directly in your browser.</p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /docs</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <p>Returns the Swagger UI interface.</p>
-                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html&gt;
-    &lt;head&gt;... Swagger UI ...&lt;/head&gt;
-    &lt;body&gt;... Interactive Documentation ...&lt;/body&gt;
-&lt;/html&gt;</code></pre>
-                                </div>
-                            </div>
-                        </div>
+aside.toc{position:sticky;top:54px;align-self:start;height:calc(100vh - 54px);overflow:auto;padding:44px 22px}
+.toc h5{margin:0 0 13px;font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+.toc a{display:block;padding:6px 0 6px 13px;border-left:1px solid var(--line);color:var(--faint);font-size:13px;transition:.12s}
+.toc a:hover{color:var(--ink)}
+.toc a.active{color:var(--accent);border-left-color:var(--accent)}
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/redoc</code> ReDoc API Documentation</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Provides alternative API documentation using ReDoc. This interface offers a clean, three-panel view of your API specification, ideal for reading and understanding the API structure.</p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /redoc</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <p>Returns the ReDoc UI interface.</p>
-                                    <pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html&gt;
-    &lt;head&gt;... ReDoc ...&lt;/head&gt;
-    &lt;body&gt;... API Documentation ...&lt;/body&gt;
-&lt;/html&gt;</code></pre>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+.menu-btn{display:none}
+@media(max-width:1180px){.wrap{grid-template-columns:262px minmax(0,1fr)}aside.toc{display:none}}
+@media(max-width:860px){
+  .wrap{grid-template-columns:1fr}
+  aside.side{position:fixed;left:0;top:54px;width:280px;background:var(--bg);z-index:40;transform:translateX(-102%);transition:.2s}
+  aside.side.open{transform:none}
+  main.doc{padding:30px 20px 80px}
+  .steps{padding-left:0;border-left:0}
+  .step{position:static;left:auto;top:auto}
+  .menu-btn{display:inline-grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);color:var(--ink);cursor:pointer;font-size:16px}
+  h1.title{font-size:32px}
+  .ep-desc{display:none}
+}
+"""
 
-                <!-- User Analytics Section -->
-                <div class="api-section">
-                    <div class="section-header">
-                        <h2>User Analytics</h2>
-                        <span class="section-toggle">&#9660;</span>
-                    </div>
-                    <div class="section-content">
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/languages</code> Get User's Programming Languages</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Get the programming languages used in a GitHub user's repositories.</p>
-                                
-                                <h3>Parameters</h3>
-                                <div class="parameter">
-                                    <code>exclude</code> Optional comma-separated list of languages to exclude (preferred)
-                                </div>
-                                <div class="parameter">
-                                    <code>excluded</code> Optional repeated query param for backwards compatibility (legacy)
-                                </div>
+_PLAYGROUND_CSS = """
+.pg-main{max-width:760px;margin:0 auto;padding:56px 24px 110px}
+.pg-eyebrow{text-align:center;color:var(--accent);font-family:var(--mono);font-size:12px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:14px;animation:pg-fade-up .5s ease both}
+.pg-h1{text-align:center;font-family:var(--mono);font-size:clamp(26px,4vw,38px);letter-spacing:-.02em;margin:0 0 14px;animation:pg-fade-up .5s .05s ease both}
+.pg-sub{text-align:center;color:var(--muted);font-size:15px;line-height:1.65;max-width:600px;margin:0 auto 36px;animation:pg-fade-up .5s .1s ease both}
 
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/languages?exclude=HTML,CSS
-GET /tashifkhan/languages?excluded=HTML&excluded=CSS</code></pre>
-                                </div>
+@keyframes pg-fade-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pg-spin{to{transform:rotate(360deg)}}
+@keyframes pg-pulse-bar{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes pg-shimmer{0%{background-position:-220px 0}100%{background-position:220px 0}}
+@keyframes pg-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+@keyframes pg-ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 45%,transparent)}100%{box-shadow:0 0 0 9px transparent}}
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "name": "Python", 
-        "percentage": 45.0
-    },
-    {
-        "name": "JavaScript", 
-        "percentage": 30.0
-    }
-]</code></pre>
-                                </div>
+.pg-bar{position:sticky;top:66px;z-index:10;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:32px;animation:pg-fade-up .5s .15s ease both;transition:border-color .2s,box-shadow .2s}
+.pg-bar:focus-within{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+.pg-bar-row{display:flex;gap:10px;align-items:flex-start}
+.pg-input-wrap{position:relative;flex:1;min-width:0}
+.pg-input-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--faint);display:flex;pointer-events:none;transition:color .15s}
+.pg-input-wrap:focus-within .pg-input-icon{color:var(--accent)}
+.pg-input{width:100%;background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r);padding:11px 34px 11px 38px;color:var(--ink);font-family:var(--mono);font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s}
+.pg-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.pg-input.shake{animation:pg-shake .4s ease}
+.pg-input-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:22px;height:22px;display:none;align-items:center;justify-content:center;border:0;border-radius:50%;background:transparent;color:var(--faint);font-size:16px;line-height:1;cursor:pointer;transition:.15s}
+.pg-input-clear:hover{background:var(--line);color:var(--ink)}
+.pg-input-wrap.has-value .pg-input-clear{display:flex}
+.pg-btn{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:var(--r);padding:0 18px;font-weight:700;font-family:var(--mono);cursor:pointer;font-size:14px;white-space:nowrap;transition:filter .15s,transform .08s}
+.pg-btn:hover{filter:brightness(1.08)}
+.pg-btn:active{transform:scale(.97)}
+.pg-btn:disabled{opacity:.7;cursor:default;transform:none}
+.pg-runall{flex:none;min-width:118px;height:42px}
+.pg-hint{margin:12px 2px 0;color:var(--faint);font-size:12.5px;line-height:1.6}
 
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
+.pg-progress{height:3px;border-radius:3px;background:var(--line);overflow:hidden;margin:14px 2px 0;max-height:0;opacity:0;transition:max-height .2s ease,opacity .2s ease,margin .2s ease}
+.pg-progress.active{max-height:3px;opacity:1}
+.pg-progress-bar{height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width .3s ease}
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/contributions</code> Get User's Contribution History</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieve a user's GitHub contribution history and statistics, including contribution calendar data, total commits, and longest streak.</p>
-                                
-                                <div class="parameter">
-                                    <code>starting_year</code> Optional starting year for contribution history (defaults to account creation year)
-                                </div>
+.pg-recent{position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r);padding:6px;z-index:20;max-height:230px;overflow:auto;box-shadow:0 12px 28px rgba(0,0,0,.45);opacity:0;transform:translateY(-6px) scale(.98);pointer-events:none;transition:opacity .15s ease,transform .15s ease}
+.pg-recent.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+.pg-recent-head{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+.pg-recent-head button{background:none;border:0;color:var(--faint);cursor:pointer;font-size:12px;font-family:var(--sans)}
+.pg-recent-head button:hover{color:var(--ink)}
+.pg-recent-item{display:block;width:100%;text-align:left;background:none;border:0;color:var(--muted);font-family:var(--mono);padding:8px;border-radius:6px;cursor:pointer;font-size:13.5px;transition:background .1s}
+.pg-recent-item:hover{background:var(--line);color:var(--ink)}
 
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/contributions?starting_year=2022</code></pre>
-                                </div>
+.pg-group-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 12px;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.pg-legacy-toggle{display:flex;align-items:center;gap:6px;background:none;border:0;color:var(--faint);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;padding:0;font-family:inherit}
+.pg-legacy-toggle:hover{color:var(--ink)}
+.pg-legacy-toggle .chev{position:static}
+.pg-legacy-toggle[aria-expanded="true"] .chev{transform:rotate(90deg);color:var(--accent)}
+.pg-legacy-list{display:none}
+.pg-legacy-list.open{display:grid}
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">{
-    "contributions": {
-        "2023": {
-            "data": {
-                "user": {
-                    "contributionsCollection": {
-                        "weeks": []
-                    }
-                }
-            }
-        }
-    },
-    "totalCommits": 1234,
-    "longestStreak": 30,
-    "currentStreak": 15
-}</code></pre>
-                                </div>
+.pg-canonical-list{animation:pg-fade-up .4s .2s ease both}
 
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
+.pg-row{flex-wrap:wrap}
+.pg-status{flex:none;display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:5px;padding:3px 8px;white-space:nowrap;transition:color .15s,border-color .15s}
+.pg-status.ok{color:#3fb950;border-color:color-mix(in srgb,#3fb950 45%,var(--line))}
+.pg-status.err{color:#f85149;border-color:color-mix(in srgb,#f85149 45%,var(--line))}
+.pg-status.busy{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.pg-run-btn{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:46px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:5px;padding:5px 12px;font-weight:700;font-family:var(--mono);font-size:12px;cursor:pointer;transition:filter .15s,transform .08s}
+.pg-run-btn:hover{filter:brightness(1.08)}
+.pg-run-btn:active{transform:scale(.95)}
+.pg-run-btn:disabled{opacity:.7;cursor:default;transform:none}
+.ep[data-path]{transition:border-color .15s,transform .15s,box-shadow .15s}
+.ep[data-path]:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.28)}
+.ep.ok::before{background:#3fb950}
+.ep.err::before{background:#f85149}
+.ep.busy::before{background:var(--accent);animation:pg-pulse-bar 1s ease-in-out infinite}
+.ep.ok{animation:pg-ring .5s ease}
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stats</code> Get User's Complete Statistics</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Get comprehensive GitHub statistics for a user, combining top programming languages, total contribution count, longest contribution streak, current streak, profile visitors count, and contribution history data.</p>
-                                
-                                <div class="parameter">
-                                    <code>exclude</code> Optional comma-separated list of languages to exclude (preferred)
-                                </div>
-                                <div class="parameter">
-                                    <code>excluded</code> Optional repeated query param for backwards compatibility (legacy)
-                                </div>
+.pg-spinner{width:13px;height:13px;flex:none;border-radius:50%;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;animation:pg-spin .7s linear infinite}
+.pg-run-btn .pg-spinner{width:11px;height:11px}
 
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/stats?exclude=HTML,CSS,Markdown
-GET /tashifkhan/stats?excluded=HTML&excluded=CSS&excluded=Markdown</code></pre>
-                                </div>
+.pg-placeholder{color:var(--faint)}
+.pg-ep-loading{padding:4px 0 12px}
+.pg-ep-loading .req{color:var(--faint);font-family:var(--mono);font-size:12px;margin:0 0 10px;display:flex;align-items:center;gap:7px}
+.pg-skel{height:11px;border-radius:4px;margin:8px 0;background:linear-gradient(90deg,var(--line) 25%,var(--line-2) 50%,var(--line) 75%);background-size:440px 100%;animation:pg-shimmer 1.3s linear infinite}
+.pg-skel.w90{width:90%}.pg-skel.w70{width:70%}.pg-skel.w50{width:50%}.pg-skel.w35{width:35%}
+.pg-ep-meta{display:flex;align-items:center;gap:8px;margin:10px 0 8px;animation:pg-fade-up .3s ease both}
+.pg-ep-meta .url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.pg-copy{flex:none;cursor:pointer;color:var(--faint);font-size:11px;font-family:var(--mono);border:1px solid var(--line);border-radius:5px;padding:3px 8px;background:transparent;transition:.15s}
+.pg-copy:hover{color:var(--ink);border-color:var(--line-2)}
+.pg-ep-resp{margin:0;padding:12px 14px;overflow:auto;max-height:420px;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#d6d6dc;background:var(--bg);border:1px solid var(--line);border-radius:var(--r)}
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">{
-    "status": "success",
-    "message": "retrieved",
-    "topLanguages": [
-        {"name": "Python", "percentage": 45}
-    ],
-    "totalCommits": 1234,
-    "longestStreak": 30,
-    "currentStreak": 15,
-    "profile_visitors": 567,
-    "contributions": { ... }
-}</code></pre>
-                                </div>
+.pg-tabs{display:flex;gap:6px;margin:2px 0 14px;animation:pg-fade-up .3s ease both}
+.pg-tab-btn{background:none;border:1px solid var(--line);color:var(--muted);font-family:var(--mono);font-size:11.5px;padding:5px 12px;border-radius:5px;cursor:pointer;transition:.15s}
+.pg-tab-btn:hover{color:var(--ink)}
+.pg-tab-btn.active{background:var(--panel-2);color:var(--ink);border-color:var(--line-2)}
+.pg-view[hidden]{display:none}
+.pg-view{animation:pg-fade-up .25s ease both}
 
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
+.pg-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:2px 0}
+.pg-card{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px}
+.pg-card-lbl{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;font-family:var(--mono)}
+.pg-card-val{font-size:14px;font-weight:600;color:var(--ink);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/profile-views</code> Get and Increment Profile Views</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Gets the current profile views count for a user and optionally increments it. Similar to the GitHub Profile Views Counter service.</p>
-                                
-                                <div class="parameter">
-                                    <code>increment</code> Optional boolean to increment the view count (default: true)
-                                </div>
-                                <div class="parameter">
-                                    <code>base</code> Optional base count to set (for migration from other services)
-                                </div>
+.pg-section{margin:18px 0 4px}
+.pg-section-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);font-family:var(--mono);margin:0 0 8px}
 
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/profile-views?increment=true</code></pre>
-                                </div>
+.pg-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--r);max-height:360px}
+.pg-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.pg-table th{position:sticky;top:0;text-align:left;color:var(--faint);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel-2);white-space:nowrap}
+.pg-table td{padding:7px 10px;border-bottom:1px solid var(--line);color:var(--muted);font-family:var(--mono);white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.pg-table tr:last-child td{border-bottom:0}
+.pg-table-note{color:var(--faint);font-size:11.5px;margin:6px 2px 0}
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">{
-    "username": "tashifkhan",
-    "views": 1234,
-    "incremented": true
-}</code></pre>
-                                </div>
+.pg-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pg-chip{font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:3px 9px;background:var(--bg)}
+.pg-empty{color:var(--faint);font-size:12.5px;margin:4px 0}
 
-                                <div class="note">
-                                    <h3>Usage Examples</h3>
-                                    <p><strong>Basic usage (increments count):</strong></p>
-                                    <pre><code>GET /tashifkhan/profile-views</code></pre>
-                                    
-                                    <p><strong>Get count without incrementing:</strong></p>
-                                    <pre><code>GET /tashifkhan/profile-views?increment=false</code></pre>
-                                    
-                                    <p><strong>Set base count for migration:</strong></p>
-                                    <pre><code>GET /tashifkhan/profile-views?base=1000</code></pre>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+.pg-foot-note{text-align:center;color:var(--faint);font-size:13px;margin-top:40px}
 
-                <div class="api-section">
-                    <div class="section-header">
-                        <h2>Pull Request & Organization Endpoints</h2>
-                        <span class="section-toggle">&#9660;</span>
-                    </div>
-                    <div class="section-content">
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/me/pulls</code> Get User's Pull Requests (Own Repos)</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Returns all pull requests created by the user in their own repositories, including their status (merged, closed, or open).</p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/me/pulls</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "repo": "RepoName",
-        "number": 123,
-        "title": "Fix bug in feature X",
-        "state": "merged",
-        "created_at": "2023-01-01T12:00:00Z",
-        "updated_at": "2023-01-02T12:00:00Z",
-        "closed_at": "2023-01-02T12:00:00Z",
-        "merged_at": "2023-01-02T12:00:00Z",
-        "user": "tashifkhan",
-        "url": "https://github.com/tashifkhan/RepoName/pull/123",
-        "body": "This PR fixes ..."
-    }
-]</code></pre>
-                                </div>
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/org-contributions</code> Get Organizations Contributed To</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Returns all organizations where the user has contributed (via merged PRs), and the repositories they contributed to.</p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/org-contributions</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "org": "openai",
-        "org_id": 123456,
-        "org_url": "https://github.com/openai",
-        "org_avatar_url": "https://avatars.githubusercontent.com/u/123456?v=4",
-        "repos": ["repo1", "repo2"]
-    }
-]</code></pre>
-                                </div>
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/prs</code> Get PRs Opened in Other People's Repos</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Returns all pull requests opened by the user in other people's repositories (not their own), including their status (merged, closed, or open).</p>
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/prs</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "repo": "OtherRepo",
-        "number": 456,
-        "title": "Add new feature",
-        "state": "closed",
-        "created_at": "2023-02-01T10:00:00Z",
-        "updated_at": "2023-02-02T10:00:00Z",
-        "closed_at": "2023-02-02T10:00:00Z",
-        "merged_at": null,
-        "user": "tashifkhan",
-        "url": "https://github.com/otheruser/OtherRepo/pull/456",
-        "body": "Implements ..."
-    }
-]</code></pre>
-                                </div>
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+@media(max-width:640px){
+  .pg-bar-row{flex-direction:column}
+  .pg-runall{width:100%;justify-content:center}
+}
+"""
 
-                <!-- Dashboard Details Section -->
-                <div class="api-section">
-                    <div class="section-header">
-                        <h2>Dashboard Details</h2>
-                        <span class="section-toggle">&#9660;</span>
-                    </div>
-                    <div class="section-content">
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/repos</code> Get User's Repository Details</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieves detailed information for each of the user's public repositories, including decoded README markdown, languages, commit count, stars count, and latest release metadata (with asset download links).</p>
-                                
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/repos</code></pre>
-                                </div>
+_JS = """
+document.querySelectorAll('[data-origin]').forEach(function(el){var o=location.origin;el.textContent=(o&&o!=='null')?o:'https://your-host'});
+document.querySelectorAll('.copy').forEach(function(b){b.addEventListener('click',function(e){
+  e.stopPropagation();
+  var pre=b.closest('.code').querySelector('pre');
+  navigator.clipboard.writeText(pre.innerText).then(function(){var t=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=t},1200)});
+})});
+document.querySelectorAll('.ep-head').forEach(function(h){h.addEventListener('click',function(){
+  var ep=h.parentElement,open=ep.classList.toggle('open');
+  h.setAttribute('aria-expanded',open?'true':'false');
+})});
+var mb=document.querySelector('.menu-btn'),sb=document.querySelector('.side');
+if(mb)mb.addEventListener('click',function(){sb.classList.toggle('open')});
+var toc={},nav={};
+document.querySelectorAll('[data-toc]').forEach(function(a){toc[a.getAttribute('href').slice(1)]=a});
+document.querySelectorAll('[data-nav]').forEach(function(a){nav[a.getAttribute('href').slice(1)]=a});
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){
+  var id=e.target.id;
+  Object.keys(toc).forEach(function(k){toc[k].classList.remove('active')});
+  Object.keys(nav).forEach(function(k){nav[k].classList.remove('active')});
+  if(toc[id])toc[id].classList.add('active');
+  if(nav[id])nav[id].classList.add('active');
+}})},{rootMargin:'-12% 0px -75% 0px'});
+document.querySelectorAll('.section').forEach(function(s){io.observe(s)});
+var si=document.querySelector('.search input');
+if(si)si.addEventListener('input',function(){var q=si.value.toLowerCase();
+  document.querySelectorAll('.navgroup a').forEach(function(a){a.style.display=a.textContent.toLowerCase().indexOf(q)>-1?'':'none'});
+});
+"""
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "title": "RepoName",
-        "description": "A cool project.",
-        "live_website_url": "https://example.com",
-        "languages": ["Python", "JavaScript"],
-        "num_commits": 42,
-        "stars": 25,
-        "readme": "# RepoName\n\nProject documentation in markdown.",
-        "releases": [
-            {
-                "id": 123456,
-                "tag_name": "v1.2.0",
-                "name": "v1.2.0",
-                "body": "## Changelog\n\n- Added release support",
-                "url": "https://github.com/user/RepoName/releases/tag/v1.2.0",
-                "draft": false,
-                "prerelease": false,
-                "created_at": "2024-01-01T00:00:00Z",
-                "published_at": "2024-01-01T01:00:00Z",
-                "assets": [
-                    {
-                        "name": "RepoName-v1.2.0.zip",
-                        "download_url": "https://github.com/user/RepoName/releases/download/v1.2.0/RepoName-v1.2.0.zip",
-                        "size": 204800,
-                        "download_count": 120,
-                        "content_type": "application/zip",
-                        "updated_at": "2024-01-01T01:10:00Z"
-                    }
-                ]
-            }
-        ]
-    }
-]</code></pre>
-                                </div>
+_PLAYGROUND_JS = """
+(function(){
+  var STORE_KEY = 'pg_recent_' + PLATFORM_KEY;
+  var form = document.querySelector('.pg-form');
+  var input = document.querySelector('.pg-input');
+  var inputWrap = document.querySelector('.pg-input-wrap');
+  var clearBtn = document.querySelector('.pg-input-clear');
+  var runAllBtn = document.querySelector('.pg-runall');
+  var runAllDefaultHTML = runAllBtn.innerHTML;
+  var progressEl = document.querySelector('.pg-progress');
+  var progressBarEl = document.querySelector('.pg-progress-bar');
+  var recentBox = document.querySelector('.pg-recent');
+  var canonicalEps = Array.prototype.slice.call(document.querySelectorAll('.pg-canonical-list .ep'));
+  var allEps = Array.prototype.slice.call(document.querySelectorAll('.ep[data-path]'));
 
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                                    <p><code>500</code> - GitHub token configuration error or API error</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/stars</code> Get User's Stars Information</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieves stars information for a user's repositories including total stars and detailed repository information. Repositories are sorted by star count (highest first).</p>
-                                
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/stars</code></pre>
-                                </div>
-
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">{
-    "total_stars": 150,
-    "repositories": [
-        {
-            "name": "RepoName",
-            "description": "A popular project",
-            "stars": 100,
-            "url": "https://github.com/user/repo",
-            "language": "Python",
-            "created_at": "2023-01-01T00:00:00Z",
-            "updated_at": "2023-12-01T00:00:00Z"
-        }
-    ]
-}</code></pre>
-                                </div>
-
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error or API error</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/pinned</code> Get User's Pinned Repositories</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieves a user's pinned repositories (as configured on their GitHub profile) via the GitHub GraphQL API. Returns up to 6 repositories including key metadata.</p>
-                                <div class="parameter">
-                                    <code>first</code> <strong>(query, optional)</strong> - Number of pinned repositories to fetch (1–6). Default: 6.
-                                </div>
-                                <div class="note">
-                                    <h3>Example Requests</h3>
-                                    <pre><code>GET /tashifkhan/pinned
-GET /tashifkhan/pinned?first=4</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-  {
-    "name": "awesome-project",
-    "description": "An awesome pinned project",
-    "url": "https://github.com/user/awesome-project",
-    "stars": 123,
-    "forks": 10,
-    "primary_language": "Python"
+  function syncHasValue(){ inputWrap.classList.toggle('has-value', input.value.length > 0); }
+  syncHasValue();
+  input.addEventListener('input', syncHasValue);
+  input.addEventListener('animationend', function(){ input.classList.remove('shake'); });
+  if(clearBtn){
+    clearBtn.addEventListener('click', function(){
+      input.value = ''; syncHasValue(); input.focus(); recentBox.classList.remove('open');
+    });
   }
-]</code></pre>
-                                </div>
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or API error</p>
-                                    <p><code>500</code> - GitHub token configuration error or API error</p>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/star-lists</code> Get User's Starred Lists</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieves the public <em>Starred Lists</em> a user has created (curated groups of their starred repositories). Optionally include the repositories within each list via <code>?include_repos=true</code>.</p>
-                                <div class="parameter">
-                                    <code>include_repos</code> <strong>(query, optional)</strong> - When <code>true</code>, also returns an array of repository slugs (owner/repo) in each list.
-                                </div>
-                                <div class="note">
-                                    <h3>Example Requests</h3>
-                                    <pre><code>GET /tashifkhan/star-lists
-GET /tashifkhan/star-lists?include_repos=true</code></pre>
-                                </div>
-                                <div class="response">
-                                    <h3>Response (with include_repos=true)</h3>
-                                    <pre><code class="language-json">[
-  {
-    "name": "AI Projects",
-    "url": "https://github.com/stars/username/lists/ai-projects",
-    "repositories": [
-      "pytorch/pytorch",
-      "huggingface/transformers"
-    ]
+  function getRecent(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }catch(e){ return []; } }
+  function saveRecent(list){ localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 6))); }
+  function pushRecent(h){
+    var list = getRecent().filter(function(x){ return x.toLowerCase() !== h.toLowerCase(); });
+    list.unshift(h);
+    saveRecent(list);
+    renderRecent();
   }
-]</code></pre>
-                                </div>
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found or lists unavailable</p>
-                                </div>
-                            </div>
-                        </div>
+  function renderRecent(){
+    var list = getRecent();
+    if(!list.length){ recentBox.classList.remove('open'); recentBox.innerHTML=''; return; }
+    recentBox.innerHTML = '<div class="pg-recent-head">Recent Searches<button type="button" class="pg-clear">Clear</button></div>' +
+      list.map(function(h){ return '<button type="button" class="pg-recent-item">' + h.replace(/</g,'&lt;') + '</button>'; }).join('');
+    recentBox.querySelector('.pg-clear').addEventListener('click', function(e){ e.stopPropagation(); saveRecent([]); renderRecent(); });
+    Array.prototype.forEach.call(recentBox.querySelectorAll('.pg-recent-item'), function(b){
+      b.addEventListener('click', function(){ input.value = b.textContent; syncHasValue(); recentBox.classList.remove('open'); });
+    });
+  }
+  renderRecent();
+  input.addEventListener('focus', function(){ if(getRecent().length) recentBox.classList.add('open'); });
+  document.addEventListener('click', function(e){ if(!recentBox.contains(e.target) && e.target !== input) recentBox.classList.remove('open'); });
 
-                        <div class="endpoint">
-                            <div class="endpoint-header">
-                                <h2><span class="endpoint-method">GET</span><code class="path">/{username}/commits</code> Get User's Commit History Across All Repositories</h2>
-                                <span class="endpoint-toggle">+</span>
-                            </div>
-                            <div class="endpoint-content">
-                                <p>Retrieves a list of all commits made by the user across all their owned repositories, sorted by timestamp (most recent first).</p>
+  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function buildUrl(tmpl, value){ return tmpl.replace(/\\{[^}]+\\}/g, function(){ return encodeURIComponent(value); }); }
 
-                                <div class="note">
-                                    <h3>Example Request</h3>
-                                    <pre><code>GET /tashifkhan/commits</code></pre>
-                                </div>
+  function isPlainObject(v){ return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function isScalar(v){ return v === null || typeof v !== 'object'; }
+  function fmtScalar(v){
+    if(v === null || v === undefined || v === '') return '\\u2014';
+    if(typeof v === 'boolean') return v ? 'Yes' : 'No';
+    return String(v);
+  }
+  function humanize(key){
+    return String(key).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+      .replace(/^./, function(c){ return c.toUpperCase(); });
+  }
 
-                                <div class="response">
-                                    <h3>Response</h3>
-                                    <pre><code class="language-json">[
-    {
-        "repo": "RepoName",
-        "message": "Fix: A critical bug",
-        "timestamp": "2023-01-01T12:00:00Z",
-        "sha": "commit_sha_hash",
-        "url": "https://github.com/user/repo/commit/sha"
+  function renderScalarGrid(obj, keys){
+    return '<div class="pg-cards">' + keys.map(function(k){
+      var v = fmtScalar(obj[k]);
+      return '<div class="pg-card"><div class="pg-card-lbl">' + escHtml(humanize(k)) + '</div>' +
+        '<div class="pg-card-val" title="' + escHtml(v) + '">' + escHtml(v) + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function renderTable(rows){
+    var cap = 25;
+    var cols = [];
+    rows.slice(0, cap).forEach(function(r){
+      if(isPlainObject(r)){
+        Object.keys(r).forEach(function(k){ if(cols.indexOf(k) === -1) cols.push(k); });
+      }
+    });
+    if(!cols.length){
+      return '<div class="pg-chips">' + rows.slice(0, cap).map(function(v){
+        return '<span class="pg-chip">' + escHtml(fmtScalar(v)) + '</span>';
+      }).join('') + '</div>';
     }
-]</code></pre>
-                                </div>
+    cols = cols.slice(0, 8);
+    var thead = '<tr>' + cols.map(function(c){ return '<th>' + escHtml(humanize(c)) + '</th>'; }).join('') + '</tr>';
+    var tbody = rows.slice(0, cap).map(function(r){
+      return '<tr>' + cols.map(function(c){
+        var v = isPlainObject(r) ? r[c] : undefined;
+        var text = v === undefined ? '\\u2014' : (isScalar(v) ? fmtScalar(v) : JSON.stringify(v));
+        return '<td title="' + escHtml(text) + '">' + escHtml(text) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    var note = rows.length > cap ? '<p class="pg-table-note">Showing ' + cap + ' of ' + rows.length + ' rows.</p>' : '';
+    return '<div class="pg-table-wrap"><table class="pg-table"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>' + note;
+  }
 
-                                <div class="error-response">
-                                    <h3>Error Responses</h3>
-                                    <p><code>404</code> - User not found (may return empty list if service handles this way)</p>
-                                    <p><code>500</code> - GitHub token configuration error or API error</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+  function renderSection(label, html){
+    return '<div class="pg-section"><div class="pg-section-lbl">' + escHtml(label) + '</div>' + html + '</div>';
+  }
 
-                <div class="error-section">
-                    <h2>Error Responses</h2>
-                    
-                    <div class="error-item">
-                        <div class="error-toggle">
-                            <h3>User not found</h3>
-                            <span class="error-toggle-icon">+</span>
-                        </div>
-                        <div class="error-content">
-                            <pre><code>{
-    "status": "error",
-    "message": "User not found or API error",
-    "topLanguages": [],
-    "totalCommits": 0,
-    "longestStreak": 0,
-    "currentStreak": 0
-}</code></pre>
-                        </div>
-                    </div>
+  function renderNode(value){
+    if(Array.isArray(value)) return value.length ? renderTable(value) : '<p class="pg-empty">Empty list.</p>';
+    if(!isPlainObject(value)) return '<p class="pg-empty">' + escHtml(fmtScalar(value)) + '</p>';
+    var keys = Object.keys(value);
+    if(!keys.length) return '<p class="pg-empty">Empty response.</p>';
+    var scalarKeys = keys.filter(function(k){ return isScalar(value[k]); });
+    var complexKeys = keys.filter(function(k){ return !isScalar(value[k]); });
+    var out = scalarKeys.length ? renderScalarGrid(value, scalarKeys) : '';
+    complexKeys.forEach(function(k){
+      var v = value[k];
+      var inner;
+      if(Array.isArray(v)){
+        inner = v.length ? renderTable(v) : '<p class="pg-empty">Empty list.</p>';
+      } else {
+        var subKeys = Object.keys(v);
+        inner = (subKeys.length && subKeys.every(function(sk){ return isScalar(v[sk]); }))
+          ? renderScalarGrid(v, subKeys)
+          : '<pre class="pg-ep-resp">' + escHtml(JSON.stringify(v, null, 2)) + '</pre>';
+      }
+      out += renderSection(humanize(k), inner);
+    });
+    return out;
+  }
 
-                    <div class="error-item">
-                        <div class="error-toggle">
-                            <h3>Server error</h3>
-                            <span class="error-toggle-icon">+</span>
-                        </div>
-                        <div class="error-content">
-                            <pre><code>{
-    "status": "error",
-    "message": "GitHub token not configured",
-    "topLanguages": [],
-    "totalCommits": 0,
-    "longestStreak": 0,
-    "currentStreak": 0
-}</code></pre>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+  function runOne(ep){
+    var tmpl = ep.getAttribute('data-path');
+    var hasParam = /\\{[^}]+\\}/.test(tmpl);
+    var value = input.value.trim();
+    if(hasParam && !value){ input.focus(); return Promise.resolve(); }
+    var url = buildUrl(tmpl, value);
+    var status = ep.querySelector('.pg-status');
+    var body = ep.querySelector('.ep-body');
+    var runBtn = ep.querySelector('.pg-run-btn');
+    var runBtnHTML = runBtn.innerHTML;
+    ep.classList.add('open', 'busy');
+    ep.classList.remove('ok', 'err');
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<span class="pg-spinner"></span>';
+    status.innerHTML = '<span class="pg-spinner"></span>';
+    status.className = 'pg-status busy';
+    body.innerHTML = '<div class="pg-ep-loading"><div class="req"><span class="pg-spinner"></span>Requesting ' + escHtml(url) + '\\u2026</div>' +
+      '<div class="pg-skel w90"></div><div class="pg-skel w70"></div><div class="pg-skel w50"></div><div class="pg-skel w35"></div></div>';
+    var start = performance.now();
+    return fetch(url).then(function(r){
+      var ms = Math.round(performance.now() - start);
+      return r.text().then(function(text){
+        var parsed = null;
+        try{ parsed = JSON.parse(text); }catch(e){}
+        var pretty = parsed !== null ? JSON.stringify(parsed, null, 2) : text;
+        var formatted = '';
+        if(parsed !== null){
+          var target = (isPlainObject(parsed) && Object.prototype.hasOwnProperty.call(parsed, 'data'))
+            ? parsed.data : parsed;
+          formatted = renderNode(target);
+        }
+        ep.classList.remove('busy');
+        ep.classList.add(r.ok ? 'ok' : 'err');
+        status.textContent = r.status + ' \\u00b7 ' + ms + 'ms';
+        status.className = 'pg-status ' + (r.ok ? 'ok' : 'err');
+        var meta = '<div class="pg-ep-meta"><span class="url">GET ' + escHtml(url) + '</span><button type="button" class="pg-copy">Copy</button></div>';
+        var tabs = formatted
+          ? '<div class="pg-tabs"><button type="button" class="pg-tab-btn active" data-view="pretty">Formatted</button>' +
+            '<button type="button" class="pg-tab-btn" data-view="raw">Raw JSON</button></div>'
+          : '';
+        var prettyView = '<div class="pg-view" data-view="pretty"' + (formatted ? '' : ' hidden') + '>' + formatted + '</div>';
+        var rawView = '<div class="pg-view" data-view="raw"' + (formatted ? ' hidden' : '') + '><pre class="pg-ep-resp">' + escHtml(pretty) + '</pre></div>';
+        body.innerHTML = meta + tabs + prettyView + rawView;
+        body.querySelector('.pg-copy').addEventListener('click', function(e){
+          e.stopPropagation();
+          navigator.clipboard.writeText(pretty).then(function(){
+            var b = e.currentTarget, t = b.textContent;
+            b.textContent = 'Copied'; setTimeout(function(){ b.textContent = t; }, 1200);
+          });
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('.pg-tab-btn'), function(btn){
+          btn.addEventListener('click', function(e){
+            e.stopPropagation();
+            var view = btn.getAttribute('data-view');
+            Array.prototype.forEach.call(body.querySelectorAll('.pg-tab-btn'), function(b){ b.classList.toggle('active', b === btn); });
+            Array.prototype.forEach.call(body.querySelectorAll('.pg-view'), function(v){ v.hidden = v.getAttribute('data-view') !== view; });
+          });
+        });
+      });
+    }).catch(function(err){
+      ep.classList.remove('busy'); ep.classList.add('err');
+      status.textContent = 'error'; status.className = 'pg-status err';
+      body.innerHTML = '<div class="pg-ep-loading">' + escHtml(err.message || 'Request failed.') + '</div>';
+    }).finally(function(){ runBtn.disabled = false; runBtn.innerHTML = runBtnHTML; });
+  }
 
-            <footer>
-                <p>GitHub Analytics API live at <a href="https://github-stats.tashif.codes" style="color: var(--secondary-color); text-decoration: none;">github-stats.tashif.codes</a></p>
-                <p>This API is open source and available on <a href="https://github.com/tashifkhan/GitHub-Stats-API.git" style="color: var(--secondary-color); text-decoration: none;">GitHub</a></p>
-            </footer>
+  allEps.forEach(function(ep){
+    var head = ep.querySelector('.ep-head');
+    var runBtn = ep.querySelector('.pg-run-btn');
+    head.addEventListener('click', function(){ ep.classList.toggle('open'); });
+    head.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); ep.classList.toggle('open'); } });
+    runBtn.addEventListener('click', function(e){ e.stopPropagation(); runOne(ep); });
+  });
 
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    // Handle endpoint toggles
-                    const endpoints = document.querySelectorAll('.endpoint');
-                    endpoints.forEach(endpoint => {
-                        const header = endpoint.querySelector('.endpoint-header');
-                        header.addEventListener('click', () => {
-                            endpoint.classList.toggle('active');
-                        });
-                    });
-                    
-                    // Handle API section toggles
-                    const apiSections = document.querySelectorAll('.api-section');
-                    apiSections.forEach(section => {
-                        const header = section.querySelector('.section-header');
-                        header.addEventListener('click', () => {
-                            section.classList.toggle('active');
-                        });
-                    });
-                    
-                    // Handle error toggles
-                    const errorItems = document.querySelectorAll('.error-item');
-                    errorItems.forEach(item => {
-                        const toggle = item.querySelector('.error-toggle');
-                        toggle.addEventListener('click', () => {
-                            item.classList.toggle('active');
-                        });
-                    });
-                    
-                    // Allow Enter key to submit form
-                    const input = document.getElementById('github-username');
-                    if (input) {
-                        input.addEventListener('keypress', function(e) {
-                            if (e.key === 'Enter') {
-                                stalkGitHubUser();
-                            }
-                        });
-                        
-                        // Show dropdown on focus
-                        input.addEventListener('focus', function() {
-                            showDropdown();
-                        });
-                        
-                        // Hide dropdown when clicking outside
-                        document.addEventListener('click', function(e) {
-                            const inputContainer = document.querySelector('.input-container');
-                            if (!inputContainer.contains(e.target)) {
-                                hideDropdown();
-                            }
-                        });
-                    }
-                    
-                    // Initialize user history dropdown
-                    updateHistoryDropdown();
-                    
-                    // Add event listener for clear history button
-                    const clearBtn = document.getElementById('clear-history');
-                    if (clearBtn) {
-                        clearBtn.addEventListener('click', clearUserHistory);
-                    }
-                    
-                    // Add event listener for clear all button in dropdown
-                    const clearAllBtn = document.getElementById('clear-all-history');
-                    if (clearAllBtn) {
-                        clearAllBtn.addEventListener('click', clearUserHistory);
-                    }
-                });
-                
-                // User History Management
-                const USER_HISTORY_KEY = 'github_username_history';
-                const MAX_HISTORY_ITEMS = 10;
-                
-                function loadUserHistory() {
-                    try {
-                        const history = localStorage.getItem(USER_HISTORY_KEY);
-                        return history ? JSON.parse(history) : [];
-                    } catch (error) {
-                        console.error('Error loading user history:', error);
-                        return [];
-                    }
-                }
-                
-                function saveUserHistory(username) {
-                    if (!username || username.trim() === '') return;
-                    
-                    try {
-                        const history = loadUserHistory();
-                        const usernameLower = username.toLowerCase().trim();
-                        
-                        // Remove if already exists (to move to top)
-                        const filteredHistory = history.filter(item => item.toLowerCase() !== usernameLower);
-                        
-                        // Add to beginning
-                        filteredHistory.unshift(username.trim());
-                        
-                        // Keep only the latest MAX_HISTORY_ITEMS
-                        const trimmedHistory = filteredHistory.slice(0, MAX_HISTORY_ITEMS);
-                        
-                        localStorage.setItem(USER_HISTORY_KEY, JSON.stringify(trimmedHistory));
-                        updateHistoryDropdown();
-                    } catch (error) {
-                        console.error('Error saving user history:', error);
-                    }
-                }
-                
-                function updateHistoryDropdown() {
-                    const historyList = document.getElementById('history-list');
-                    const history = loadUserHistory();
-                    
-                    if (!historyList) return;
-                    
-                    // Clear existing items
-                    historyList.innerHTML = '';
-                    
-                    if (history.length === 0) {
-                        historyList.innerHTML = '<div class="history-empty">No recent searches</div>';
-                        return;
-                    }
-                    
-                    // Add history items
-                    history.forEach((username, index) => {
-                        const item = document.createElement('div');
-                        item.className = 'history-item';
-                        item.innerHTML = `
-                            <span class="history-username">${username}</span>
-                            <button type="button" class="history-delete-btn" data-index="${index}" title="Remove from history">
-                                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-                                </svg>
-                            </button>
-                        `;
-                        
-                        // Add click event to select username
-                        item.addEventListener('click', (e) => {
-                            if (!e.target.closest('.history-delete-btn')) {
-                                document.getElementById('github-username').value = username;
-                                hideDropdown();
-                                stalkGitHubUser();
-                            }
-                        });
-                        
-                        // Add delete event
-                        const deleteBtn = item.querySelector('.history-delete-btn');
-                        deleteBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            removeFromHistory(index);
-                        });
-                        
-                        historyList.appendChild(item);
-                    });
-                }
-                
-                function showDropdown() {
-                    const dropdown = document.getElementById('history-dropdown');
-                    if (dropdown) {
-                        dropdown.classList.add('active');
-                    }
-                }
-                
-                function hideDropdown() {
-                    const dropdown = document.getElementById('history-dropdown');
-                    if (dropdown) {
-                        dropdown.classList.remove('active');
-                    }
-                }
-                
-                function removeFromHistory(index) {
-                    try {
-                        const history = loadUserHistory();
-                        history.splice(index, 1);
-                        localStorage.setItem(USER_HISTORY_KEY, JSON.stringify(history));
-                        updateHistoryDropdown();
-                    } catch (error) {
-                        console.error('Error removing from history:', error);
-                    }
-                }
-                
-                function clearUserHistory() {
-                    try {
-                        localStorage.removeItem(USER_HISTORY_KEY);
-                        updateHistoryDropdown();
-                        hideDropdown();
-                        
-                        // Show feedback
-                        const clearBtn = document.getElementById('clear-history');
-                        if (clearBtn) {
-                            const originalTitle = clearBtn.getAttribute('title');
-                            clearBtn.setAttribute('title', 'History cleared!');
-                            clearBtn.style.color = 'var(--secondary-color)';
-                            
-                            setTimeout(() => {
-                                clearBtn.setAttribute('title', originalTitle);
-                                clearBtn.style.color = '';
-                            }, 2000);
-                        }
-                    } catch (error) {
-                        console.error('Error clearing user history:', error);
-                    }
-                }
-                
-                // GitHub Profile Stalker functionality
-                async function stalkGitHubUser() {
-                    const usernameInput = document.getElementById('github-username');
-                    if (!usernameInput) {
-                        console.error('Username input not found');
-                        return;
-                    }
-                    
-                    const username = usernameInput.value.trim();
-                    if (!username) {
-                        alert('Please enter a GitHub username');
-                        return;
-                    }
-                    
-                    // Save to history
-                    saveUserHistory(username);
-                    
-                    const loading = document.getElementById('loading');
-                    const results = document.getElementById('profile-results');
-                    
-                    if (!loading || !results) {
-                        console.error('Required DOM elements not found');
-                        return;
-                    }
-                    
-                    // Show loading
-                    loading.style.display = 'block';
-                    results.style.display = 'none';
-                    
-                    // Fetch all data in parallel — individual failures don't block the rest
-                    const safeJson = async (res) => {
-                        try { return res.ok ? await res.json() : null; }
-                        catch { return null; }
-                    };
+  var legacyToggle = document.querySelector('.pg-legacy-toggle');
+  if(legacyToggle){
+    legacyToggle.addEventListener('click', function(){
+      var list = document.querySelector('.pg-legacy-list');
+      var open = list.classList.toggle('open');
+      legacyToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
 
-                    const settled = await Promise.allSettled([
-                        fetch(`/${username}/stats`),
-                        fetch(`/${username}/repos`),
-                        fetch(`/${username}/stars`),
-                        fetch(`/${username}/pinned`),
-                        fetch(`/${username}/star-lists?include_repos=true`),
-                        fetch(`/${username}/commits`),
-                        fetch(`/${username}/me/pulls`),
-                        fetch(`/${username}/org-contributions`),
-                        fetch(`/${username}/prs`)
-                    ]);
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var value = input.value.trim();
+    if(!value){
+      input.classList.remove('shake');
+      void input.offsetWidth;
+      input.classList.add('shake');
+      input.focus();
+      return;
+    }
+    recentBox.classList.remove('open');
+    pushRecent(value);
+    runAllBtn.disabled = true;
+    var total = canonicalEps.length, done = 0;
+    if(progressEl) progressEl.classList.add('active');
+    if(progressBarEl) progressBarEl.style.width = '0%';
+    runAllBtn.innerHTML = '<span class="pg-spinner"></span>Running 0/' + total;
+    function tick(){
+      done++;
+      runAllBtn.innerHTML = '<span class="pg-spinner"></span>Running ' + done + '/' + total;
+      if(progressBarEl) progressBarEl.style.width = Math.round((done / total) * 100) + '%';
+    }
+    Promise.all(canonicalEps.map(function(ep){ return runOne(ep).then(tick); })).finally(function(){
+      runAllBtn.disabled = false;
+      runAllBtn.innerHTML = runAllDefaultHTML;
+      if(progressEl) setTimeout(function(){ progressEl.classList.remove('active'); }, 400);
+    });
+  });
+})();
+"""
 
-                    const getResponse = (i) => settled[i].status === 'fulfilled' ? settled[i].value : null;
+_SEARCH_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-3.5-3.5"/></svg>'
 
-                    try {
-                        const [stats, repos, stars, pinned, starLists, commits, pulls, orgContribs, externalPrs] = await Promise.all([
-                            getResponse(0) ? safeJson(getResponse(0)) : Promise.resolve(null),
-                            getResponse(1) ? safeJson(getResponse(1)) : Promise.resolve(null),
-                            getResponse(2) ? safeJson(getResponse(2)) : Promise.resolve(null),
-                            getResponse(3) ? safeJson(getResponse(3)) : Promise.resolve(null),
-                            getResponse(4) ? safeJson(getResponse(4)) : Promise.resolve(null),
-                            getResponse(5) ? safeJson(getResponse(5)) : Promise.resolve(null),
-                            getResponse(6) ? safeJson(getResponse(6)) : Promise.resolve(null),
-                            getResponse(7) ? safeJson(getResponse(7)) : Promise.resolve(null),
-                            getResponse(8) ? safeJson(getResponse(8)) : Promise.resolve(null),
-                        ]);
-
-                        // Display results — each display function handles null gracefully
-                        displayProfileResults(username, stats, repos, stars, pinned, starLists, commits);
-                        displayUserPullRequests(pulls);
-                        displayOrgContributions(orgContribs);
-                        displayExternalPullRequests(externalPrs);
-
-                    } catch (error) {
-                        console.error('Error displaying data:', error);
-                        showError('Failed to fetch GitHub data. Please check the username and try again.');
-                    } finally {
-                        if (loading) {
-                            loading.style.display = 'none';
-                        }
-                    }
-                }
-                
-                function displayProfileResults(username, stats, repos, stars, pinned, starLists, commits) {
-                    const results = document.getElementById('profile-results');
-                    
-                    // Update profile overview cards with null checks
-                    const elements = {
-                        'total-commits': document.getElementById('total-commits'),
-                        'longest-streak': document.getElementById('longest-streak'),
-                        'current-streak': document.getElementById('current-streak'),
-                        'profile-views': document.getElementById('profile-views'),
-                        'total-stars': document.getElementById('total-stars'),
-                        'total-repos': document.getElementById('total-repos')
-                    };
-                    
-                    if (stats && stats.status === 'success') {
-                        if (elements['total-commits']) elements['total-commits'].textContent = stats.totalCommits || 0;
-                        if (elements['longest-streak']) elements['longest-streak'].textContent = stats.longestStreak || 0;
-                        if (elements['current-streak']) elements['current-streak'].textContent = stats.currentStreak || 0;
-                        if (elements['profile-views']) elements['profile-views'].textContent = stats.profile_visitors || 0;
-                        if (elements['total-stars']) elements['total-stars'].textContent = (stars && stars.total_stars) || 0;
-                        if (elements['total-repos']) elements['total-repos'].textContent = (repos && repos.length) || 0;
-                    } else {
-                        // Handle error case
-                        Object.values(elements).forEach(el => {
-                            if (el) el.textContent = '0';
-                        });
-                    }
-
-                    // Display languages
-                    displayLanguages((stats && stats.topLanguages) || []);
-
-                    // Display contribution graph
-                    displayContributionGraph((stats && stats.contributions) || {});
-                    
-                    // Display pinned repositories
-                    displayPinnedRepos(pinned || []);
-
-                    // Display top repositories
-                    displayTopRepos((stars && stars.repositories) || []);
-                    
-                    // Display starred lists
-                    displayStarLists(starLists || []);
-
-                    // Display recent commits
-                    displayRecentCommits(commits || []);
-                    
-                    // Display all repositories
-                    displayAllRepos(username, repos || []);
-                    
-                    results.style.display = 'block';
-                }
-
-                function displayPinnedRepos(pinned) {
-                    const container = document.getElementById('pinned-repos');
-                    if (!container) return;
-                    container.innerHTML = '';
-                    if (!Array.isArray(pinned) || pinned.length === 0) {
-                        container.innerHTML = '<p style="color: var(--text-color);">No pinned repositories.</p>';
-                        return;
-                    }
-                    pinned.forEach(repo => {
-                        const card = document.createElement('div');
-                        card.className = 'repo-card';
-                        card.innerHTML = `
-                            <h4 style=\"margin:0 0 .4rem 0; display:flex; justify-content:space-between; align-items:center;\">
-                                <a href=\"${repo.url}\" target=\"_blank\" style=\"color: var(--secondary-color); text-decoration:none;\">${repo.name}</a>
-                                <span class=\"repo-stars\" title=\"Stars\">${repo.stars}</span>
-                            </h4>
-                            ${repo.primary_language ? `<p style=\"margin:0 0 .25rem 0; font-size:.65rem; color:var(--text-color);\"><strong>${repo.primary_language}</strong></p>` : ''}
-                            ${repo.description ? `<p style=\"margin:0; font-size:.7rem; line-height:1.2;\">${repo.description}</p>` : ''}
-                        `;
-                        container.appendChild(card);
-                    });
-                }
-
-                function displayStarLists(lists) {
-                    const container = document.getElementById('star-lists');
-                    if (!container) return;
-                    container.innerHTML = '';
-                    if (!Array.isArray(lists) || lists.length === 0) {
-                        container.innerHTML = '<p style="color: var(--text-color);">No starred lists found.</p>';
-                        return;
-                    }
-                    lists.forEach(lst => {
-                        const div = document.createElement('div');
-                        div.className = 'repo-card';
-                        const repoCount = typeof lst.num_repos === 'number'
-                            ? lst.num_repos
-                            : (Array.isArray(lst.repositories) ? lst.repositories.length : 0);
-                        const reposPreview = Array.isArray(lst.repositories) && lst.repositories.length
-                            ? `<div class=\"repo-description\" style=\"font-size:0.7rem; line-height:1.3; max-height:100px; overflow:auto; margin-top:0.35rem;\">${lst.repositories.slice(0,25).map(r=>`<code>${r}</code>`).join(' ')}</div>`
-                            : '';
-                        div.innerHTML = `
-                            <h4 style=\"margin:0 0 0.4rem 0; display:flex; justify-content:space-between; align-items:center; gap:.5rem;\">
-                                <a href=\"${lst.url}\" target=\"_blank\" style=\"color: var(--secondary-color); text-decoration:none; flex:1;\">${lst.name}</a>
-                                <span class=\"repo-stars\" title=\"Repositories in list\">${repoCount}</span>
-                            </h4>
-                            ${lst.description ? `<p style=\"margin:0 0 .35rem 0; font-size:.75rem; color:var(--text-color);\">${lst.description}</p>` : ''}
-                            ${reposPreview || (repoCount === 0 ? '<p style=\"font-size:0.65rem; opacity:0.6; margin:0;\">No repositories yet</p>' : '')}
-                        `;
-                        container.appendChild(div);
-                    });
-                }
-                
-                function displayLanguages(languages) {
-                    const container = document.getElementById('languages-chart');
-                    if (!container) return;
-                    
-                    container.innerHTML = '';
-                    
-                    if (languages.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No language data available</p>';
-                        return;
-                    }
-                    
-                    languages.forEach(lang => {
-                        const languageBar = document.createElement('div');
-                        languageBar.className = 'language-bar';
-                        languageBar.innerHTML = `
-                            <div class="language-info">
-                                <div class="language-color" style="background-color: ${getLanguageColor(lang.name)};"></div>
-                                <span class="language-name">${lang.name}</span>
-                            </div>
-                            <span class="language-percentage">${lang.percentage.toFixed(1)}%</span>
-                        `;
-                        container.appendChild(languageBar);
-                    });
-                }
-                
-                var contributionChart;
-                function displayContributionGraph(contributions) {
-                    const container = document.getElementById('contribution-chart-container');
-                    if (!container) return;
-
-                    const canvas = document.getElementById('contribution-chart');
-                    if (!canvas) return;
-                    
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) return;
-
-                    if (contributionChart) {
-                        contributionChart.destroy();
-                    }
-
-                    // Get theme colors from CSS variables
-                    const styles = getComputedStyle(document.documentElement);
-                    const textColor = styles.getPropertyValue('--text-color').trim();
-                    const secondaryColor = styles.getPropertyValue('--secondary-color').trim();
-                    const gridColor = 'rgba(136, 146, 176, 0.1)';
-
-                    let allDays = [];
-
-                    if (contributions && typeof contributions === 'object') {
-                        const years = Object.keys(contributions).sort();
-                        years.forEach(year => {
-                            const yearData = contributions[year];
-                            let weeks = [];
-                            if (yearData?.data?.user?.contributionsCollection?.contributionCalendar?.weeks) {
-                                weeks = yearData.data.user.contributionsCollection.contributionCalendar.weeks;
-                            } else if (yearData?.user?.contributionsCollection?.weeks) {
-                                weeks = yearData.user.contributionsCollection.weeks;
-                            } else if (Array.isArray(yearData)) {
-                                weeks = yearData;
-                            }
-
-                            weeks.forEach(week => {
-                                if (week.contributionDays) {
-                                    week.contributionDays.forEach(day => {
-                                        allDays.push({
-                                            date: day.date,
-                                            count: day.contributionCount,
-                                        });
-                                    });
-                                }
-                            });
-                        });
-                    }
-
-                    if (allDays.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No contribution data available.</p>';
-                        return;
-                    }
-
-                    allDays.sort((a, b) => new Date(a.date) - new Date(b.date));
-                    
-                    // Show data for the last year, up to today
-                    const today = new Date();
-                    const oneYearAgo = new Date();
-                    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                    
-                    const lastYearDays = allDays.filter(day => {
-                        const dayDate = new Date(day.date);
-                        return dayDate >= oneYearAgo && dayDate <= today;
-                    });
-
-                    if (lastYearDays.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No contribution data available for the last year.</p>';
-                        return;
-                    }
-
-                    const labels = lastYearDays.map(day => {
-                        const date = new Date(day.date);
-                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-                    });
-
-                    const data = lastYearDays.map(day => day.count);
-
-                    contributionChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Contributions',
-                                data: data,
-                                borderColor: secondaryColor,
-                                backgroundColor: 'rgba(100, 255, 218, 0.1)',
-                                fill: true,
-                                borderWidth: 2,
-                                pointBackgroundColor: secondaryColor,
-                                pointRadius: 3,
-                                pointHoverRadius: 5,
-                                tension: 0.3
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    display: false,
-                                },
-                            },
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    grid: {
-                                        color: gridColor
-                                    },
-                                    ticks: {
-                                        color: textColor,
-                                    },
-                                    title: {
-                                        display: true,
-                                        text: 'Contributions',
-                                        color: textColor
-                                    }
-                                },
-                                x: {
-                                    grid: {
-                                        display: false
-                                    },
-                                    ticks: {
-                                        color: textColor,
-                                        autoSkip: true,
-                                        maxTicksLimit: 20
-                                    },
-                                    title: {
-                                        display: true,
-                                        text: 'Date',
-                                        color: textColor
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-                
-                function displayTopRepos(repos) {
-                    const container = document.getElementById('top-repos');
-                    if (!container) return;
-                    
-                    container.innerHTML = '';
-                    
-                    if (repos.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No repository data available</p>';
-                        return;
-                    }
-                    
-                    // Show top 6 repositories
-                    repos.slice(0, 6).forEach(repo => {
-                        const repoCard = document.createElement('div');
-                        repoCard.className = 'repo-card';
-                        repoCard.innerHTML = `
-                            <div class="repo-header">
-                                <a href="${repo.url}" target="_blank" class="repo-name">${repo.name}</a>
-                                <span class="repo-stars">
-                                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                    ${repo.stars}
-                                </span>
-                            </div>
-                            <div class="repo-description">${repo.description || 'No description available'}</div>
-                            <div class="repo-meta">
-                                <span class="repo-language">
-                                    <div class="repo-language-dot" style="background-color: ${getLanguageColor(repo.language)};"></div>
-                                    ${repo.language || 'Unknown'}
-                                </span>
-                                <span class="date-badge">Updated ${formatDate(repo.updated_at)}</span>
-                                ${repo.homepage ? `<span><a href="${repo.homepage}" target="_blank" style="color: var(--secondary-color);"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Live Site</a></span>` : ''}
-                            </div>
-                        `;
-                        container.appendChild(repoCard);
-                    });
-                }
-                
-                function displayRecentCommits(commits) {
-                    const container = document.getElementById('recent-commits');
-                    if (!container) return;
-                    
-                    container.innerHTML = '';
-                    
-                    if (commits.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No commit data available</p>';
-                        return;
-                    }
-                    
-                    // Show recent 10 commits
-                    commits.slice(0, 10).forEach(commit => {
-                        const commitItem = document.createElement('div');
-                        commitItem.className = 'commit-item';
-                        commitItem.innerHTML = `
-                            <div class="commit-header">
-                                <span class="commit-repo">${commit.repo}</span>
-                                <span class="commit-date">${formatDate(commit.timestamp)}</span>
-                            </div>
-                            <div class="commit-message">${commit.message}</div>
-                        `;
-                        container.appendChild(commitItem);
-                    });
-                }
-                
-                function escapeHtml(value) {
-                    if (value === null || value === undefined) return '';
-                    return String(value)
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&#39;');
-                }
-
-                function safeUrl(url) {
-                    if (typeof url !== 'string') return '#';
-                    const normalized = url.toLowerCase();
-                    return (normalized.startsWith('http://') || normalized.startsWith('https://')) ? url : '#';
-                }
-
-                function formatBytes(bytes) {
-                    const size = Number(bytes) || 0;
-                    if (size < 1024) return `${size} B`;
-                    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-                    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-                }
-
-                async function renderMarkdownToHtml(markdownText) {
-                    if (!markdownText || typeof markdownText !== 'string') return '';
-                    try {
-                        const resp = await fetch('/render-markdown', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ markdown: markdownText })
-                        });
-                        if (resp.ok) {
-                            const data = await resp.json();
-                            return data && data.html ? data.html : '';
-                        }
-                    } catch (e) {
-                        console.error('Markdown render failed:', e);
-                    }
-                    return `<pre><code>${escapeHtml(markdownText)}</code></pre>`;
-                }
-
-                async function displayAllRepos(username, repos) {
-                    const container = document.getElementById('all-repos');
-                    if (!container) return;
-                    
-                    container.innerHTML = '';
-                    
-                    if (repos.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: var(--text-color);">No repository data available</p>';
-                        return;
-                    }
-                    
-                    for (const repo of repos) {
-                        const releases = Array.isArray(repo.releases) ? repo.releases : [];
-                        const releasesHtml = [];
-
-                        for (const release of releases) {
-                            const releaseBodyHtml = release.body
-                                ? await renderMarkdownToHtml(release.body)
-                                : '<p style="font-size:0.75rem; margin:0.35rem 0 0; opacity:0.7;">No release notes</p>';
-
-                            const assets = Array.isArray(release.assets) ? release.assets : [];
-                            const assetsHtml = assets.length
-                                ? `<ul style="margin:0.5rem 0 0; padding-left:1rem; font-size:0.75rem; line-height:1.45;">${assets.map(asset => `
-                                    <li>
-                                        <a href="${safeUrl(asset.download_url)}" target="_blank" style="color: var(--secondary-color); text-decoration: underline;">${escapeHtml(asset.name || 'asset')}</a>
-                                        <span style="opacity:0.75;"> - ${formatBytes(asset.size)} - ${asset.download_count || 0} downloads</span>
-                                    </li>
-                                `).join('')}</ul>`
-                                : '<p style="font-size:0.75rem; margin:0.5rem 0 0; opacity:0.7;">No release assets</p>';
-
-                            releasesHtml.push(`
-                                <div style="margin-top:0.6rem; padding-top:0.55rem; border-top:1px dashed var(--hover-color);">
-                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
-                                        <a href="${safeUrl(release.url)}" target="_blank" style="color: var(--secondary-color); text-decoration: none; font-size:0.8rem; font-weight:600;">${escapeHtml(release.name || release.tag_name || 'Release')}</a>
-                                        <span class="date-badge">${release.published_at ? formatDate(release.published_at) : 'Unpublished'}</span>
-                                    </div>
-                                    <div class="repo-description" style="font-size:0.75rem; margin-top:0.4rem;">${releaseBodyHtml}</div>
-                                    ${assetsHtml}
-                                </div>
-                            `);
-                        }
-
-                        const repoCard = document.createElement('div');
-                        repoCard.className = 'repo-card';
-                        repoCard.innerHTML = `
-                            <div class="repo-header">
-                                <a href="https://github.com/${username}/${repo.title}" target="_blank" class="repo-name">${repo.title}</a>
-                                <span class="repo-stars">
-                                    <svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                    ${repo.stars || 0}
-                                </span>
-                            </div>
-                            <div class="repo-description">${repo.description || 'No description available'}</div>
-                            <div class="repo-meta">
-                                <span class="repo-language">
-                                    <div class="repo-language-dot" style="background-color: ${getLanguageColor(repo.languages?.[0])};"></div>
-                                    ${repo.languages?.[0] || 'Unknown'}
-                                </span>
-                                <span class="date-badge">${repo.num_commits || 0} commits</span>
-                                ${repo.live_website_url ? `<span><a href="${repo.live_website_url}" target="_blank" style="color: var(--secondary-color);"><svg class="icon" viewBox="0 0 24 24" fill="currentColor" style="width: 0.8rem; height: 0.8rem; margin-right: 0.25rem;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Live Site</a></span>` : ''}
-                            </div>
-                            <div style="margin-top:0.55rem; padding-top:0.5rem; border-top:1px solid var(--hover-color);">
-                                <h5 style="margin:0; font-size:0.78rem; color:var(--heading-color);">Releases (${releases.length})</h5>
-                                ${releases.length ? releasesHtml.join('') : '<p style="margin:0.35rem 0 0; font-size:0.75rem; opacity:0.7;">No releases found</p>'}
-                            </div>
-                        `;
-                        container.appendChild(repoCard);
-                    }
-                }
-                
-                function getLanguageColor(language) {
-                    const colors = {
-                        'Python': '#3572A5',
-                        'JavaScript': '#f1e05a',
-                        'TypeScript': '#2b7489',
-                        'Java': '#b07219',
-                        'C++': '#f34b7d',
-                        'C#': '#178600',
-                        'PHP': '#4F5D95',
-                        'Ruby': '#701516',
-                        'Go': '#00ADD8',
-                        'Rust': '#dea584',
-                        'Swift': '#ffac45',
-                        'Kotlin': '#F18E33',
-                        'Scala': '#c22d40',
-                        'HTML': '#e34c26',
-                        'CSS': '#563d7c',
-                        'Shell': '#89e051',
-                        'Dockerfile': '#384d54',
-                        'Vue': '#2c3e50',
-                        'React': '#61dafb',
-                        'Angular': '#dd0031'
-                    };
-                    return colors[language] || '#6f42c1';
-                }
-                
-                function formatDate(dateString) {
-                    if (!dateString) return 'Unknown';
-                    const date = new Date(dateString);
-                    return date.toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                    });
-                }
-                
-                function showError(message) {
-                    const results = document.getElementById('profile-results');
-                    if (!results) {
-                        console.error('Results container not found');
-                        return;
-                    }
-                    results.innerHTML = `<div class="error-message">${message}</div>`;
-                    results.style.display = 'block';
-                }
-
-                // Add these functions:
-                function displayUserPullRequests(pulls) {
-                    const container = document.getElementById('user-pulls');
-                    if (!container) return;
-                    container.innerHTML = '<h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 7v4H5V7H3v10h2v-4h14v4h2V7h-2zm0-2c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2h14zm-7 7c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg> Pull Requests in Own Repositories</h3>';
-                    if (!pulls || pulls.length === 0) {
-                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No pull requests found in own repositories.</p>';
-                        return;
-                    }
-                    pulls.slice(0, 10).forEach(async pr => {
-                        const prDiv = document.createElement('div');
-                        prDiv.className = 'repo-card';
-                        let prBodyHtml = 'No description available';
-                        if (pr.body) {
-                            try {
-                                const resp = await fetch('/render-markdown', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ markdown: pr.body })
-                                });
-                                if (resp.ok) {
-                                    prBodyHtml = (await resp.json()).html;
-                                } else {
-                                    prBodyHtml = pr.body;
-                                }
-                            } catch (e) {
-                                prBodyHtml = pr.body;
-                            }
-                        }
-                        prDiv.innerHTML = `
-                            <div class="repo-header">
-                                <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
-                                <span class="repo-stars">${pr.state.toUpperCase()}</span>
-                            </div>
-                            <div class="repo-description">${prBodyHtml}</div>
-                            <div class="repo-meta">
-                                <span class="repo-badge">Repo: ${pr.repo}</span>
-                                <span class="date-badge">Created: ${formatDate(pr.created_at)}</span>
-                                <span class="date-badge">Updated: ${formatDate(pr.updated_at)}</span>
-                            </div>
-                        `;
-                        container.appendChild(prDiv);
-                    });
-                }
-
-                function displayOrgContributions(orgContribs) {
-                    const container = document.getElementById('org-contributions');
-                    if (!container) return;
-                    container.innerHTML = '<h3>Organizations Contributed To</h3>';
-                    if (!orgContribs || orgContribs.length === 0) {
-                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No organization contributions found.</p>';
-                        return;
-                    }
-                    orgContribs.forEach(org => {
-                        const orgDiv = document.createElement('div');
-                        orgDiv.className = 'repo-card';
-                        orgDiv.innerHTML = `
-                            <div class="repo-header">
-                                <a href="${org.org_url}" target="_blank" class="repo-name">${org.org}</a>
-                            </div>
-                            <div class="repo-description">Repos contributed to: ${org.repos.join(', ')}</div>
-                        `;
-                        container.appendChild(orgDiv);
-                    });
-                }
-
-                function displayExternalPullRequests(prs) {
-                    const container = document.getElementById('external-prs');
-                    if (!container) return;
-                    container.innerHTML = '<h3><svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v-2c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2zm-2 8H6V7h8v10zm2-4h2v2h-2v-2zm0-4h2v2h-2V9z"/></svg> Pull Requests in Other People Repositories</h3>';
-                    if (!prs || prs.length === 0) {
-                        container.innerHTML += '<p style="text-align: center; color: var(--text-color);">No external pull requests found.</p>';
-                        return;
-                    }
-                    prs.slice(0, 10).forEach(async pr => {
-                        const prDiv = document.createElement('div');
-                        prDiv.className = 'repo-card';
-                        let prBodyHtml = 'No description available';
-                        if (pr.body) {
-                            try {
-                                const resp = await fetch('/render-markdown', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ markdown: pr.body })
-                                });
-                                if (resp.ok) {
-                                    prBodyHtml = (await resp.json()).html;
-                                } else {
-                                    prBodyHtml = pr.body;
-                                }
-                            } catch (e) {
-                                prBodyHtml = pr.body;
-                            }
-                        }
-                        prDiv.innerHTML = `
-                            <div class="repo-header">
-                                <a href="${pr.url}" target="_blank" class="repo-name">${pr.title}</a>
-                                <span class="repo-stars">${pr.state.toUpperCase()}</span>
-                            </div>
-                            <div class="repo-description">${prBodyHtml}</div>
-                            <div class="repo-meta">
-                                <span class="repo-badge">Repo: ${pr.repo}</span>
-                                <span class="date-badge">Created: ${formatDate(pr.created_at)}</span>
-                                <span class="date-badge">Updated: ${formatDate(pr.updated_at)}</span>
-                            </div>
-                        `;
-                        container.appendChild(prDiv);
-                    });
-                }
-            </script>
-        </body>
-        </html>
-    """
+_LOGOS = {"github": "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12", "leetcode": "M13.483 0a1.374 1.374 0 0 0-.961.438L7.116 6.226l-3.854 4.126a5.266 5.266 0 0 0-1.209 2.104 5.35 5.35 0 0 0-.125.513 5.527 5.527 0 0 0 .062 2.362 5.83 5.83 0 0 0 .349 1.017 5.938 5.938 0 0 0 1.271 1.818l4.277 4.193.039.038c2.248 2.165 5.852 2.133 8.063-.074l2.396-2.392c.54-.54.54-1.414.003-1.955a1.378 1.378 0 0 0-1.951-.003l-2.396 2.392a3.021 3.021 0 0 1-4.205.038l-.02-.019-4.276-4.193c-.652-.64-.972-1.469-.948-2.263a2.68 2.68 0 0 1 .066-.523 2.545 2.545 0 0 1 .619-1.164L9.13 8.114c1.058-1.134 3.204-1.27 4.43-.278l3.501 2.831c.593.48 1.461.387 1.94-.207a1.384 1.384 0 0 0-.207-1.943l-3.5-2.831c-.8-.647-1.766-1.045-2.774-1.202l2.015-2.158A1.384 1.384 0 0 0 13.483 0zm-2.866 12.815a1.38 1.38 0 0 0-1.38 1.382 1.38 1.38 0 0 0 1.38 1.382H20.79a1.38 1.38 0 0 0 1.38-1.382 1.38 1.38 0 0 0-1.38-1.382z", "codeforces": "M4.5 7.5C5.328 7.5 6 8.172 6 9v10.5c0 .828-.672 1.5-1.5 1.5h-3C.673 21 0 20.328 0 19.5V9c0-.828.673-1.5 1.5-1.5h3zm9-4.5c.828 0 1.5.672 1.5 1.5v15c0 .828-.672 1.5-1.5 1.5h-3c-.827 0-1.5-.672-1.5-1.5v-15c0-.828.673-1.5 1.5-1.5h3zm9 7.5c.828 0 1.5.672 1.5 1.5v7.5c0 .828-.672 1.5-1.5 1.5h-3c-.828 0-1.5-.672-1.5-1.5V12c0-.828.672-1.5 1.5-1.5h3z", "gfg": "M21.45 14.315c-.143.28-.334.532-.565.745a3.691 3.691 0 0 1-1.104.695 4.51 4.51 0 0 1-3.116-.016 3.79 3.79 0 0 1-2.135-2.078 3.571 3.571 0 0 1-.13-.353h7.418a4.26 4.26 0 0 1-.368 1.008zm-11.99-.654a3.793 3.793 0 0 1-2.134 2.078 4.51 4.51 0 0 1-3.117.016 3.7 3.7 0 0 1-1.104-.695 2.652 2.652 0 0 1-.564-.745 4.221 4.221 0 0 1-.368-1.006H9.59c-.038.12-.08.238-.13.352zm14.501-1.758a3.849 3.849 0 0 0-.082-.475l-9.634-.008a3.932 3.932 0 0 1 1.143-2.348c.363-.35.79-.625 1.26-.809a3.97 3.97 0 0 1 4.484.957l1.521-1.49a5.7 5.7 0 0 0-1.922-1.357 6.283 6.283 0 0 0-2.544-.49 6.35 6.35 0 0 0-2.405.457 6.007 6.007 0 0 0-1.963 1.276 6.142 6.142 0 0 0-1.325 1.94 5.862 5.862 0 0 0-.466 1.864h-.063a5.857 5.857 0 0 0-.467-1.865 6.13 6.13 0 0 0-1.325-1.939A6 6 0 0 0 8.21 6.34a6.698 6.698 0 0 0-4.949.031A5.708 5.708 0 0 0 1.34 7.73l1.52 1.49a4.166 4.166 0 0 1 4.484-.958c.47.184.898.46 1.26.81.368.36.66.792.859 1.268.146.344.242.708.285 1.08l-9.635.008A4.714 4.714 0 0 0 0 12.457a6.493 6.493 0 0 0 .345 2.127 4.927 4.927 0 0 0 1.08 1.783c.528.56 1.17 1 1.88 1.293a6.454 6.454 0 0 0 2.504.457c.824.005 1.64-.15 2.404-.457a5.986 5.986 0 0 0 1.964-1.277 6.116 6.116 0 0 0 1.686-3.076h.273a6.13 6.13 0 0 0 1.686 3.077 5.99 5.99 0 0 0 1.964 1.276 6.345 6.345 0 0 0 2.405.457 6.45 6.45 0 0 0 2.502-.457 5.42 5.42 0 0 0 1.882-1.293 4.928 4.928 0 0 0 1.08-1.783A6.52 6.52 0 0 0 24 12.457a4.757 4.757 0 0 0-.039-.554z", "codechef": "M11.2574.0039c-.37.0101-.7353.041-1.1003.095C9.6164.153 9.0766.4236 8.482.694c-.757.3244-1.5147.6486-2.2176.7027-1.1896.3785-1.568.919-1.8925 1.3516 0 .054-.054.1079-.054.1079-.4325.865-.4873 1.73-.325 2.5952.1621.5407.3786 1.0282.5408 1.5148.3785 1.0274.7578 2.0007.92 3.1362.1622.3244.3235.7571.4316 1.1897.2704.8651.542 1.8383 1.353 2.5952l.0057-.0028c.0175.0183.0301.0387.0482.0568.0072-.0036.0141-.0063.0213-.0099l-.0213-.5849c.6489-.9733 1.5673-1.6221 2.865-1.8925.5195-.1093 1.081-.1497 1.6625-.1278a8.7733 8.7733 0 0 1 1.7988.2357c1.4599.3785 2.595 1.1358 2.6492 1.7846.0273.3549.0398.6952.0326 1.0364-.001.064-.0046.1285-.007.193l.1362.0682c.075-.0375.1424-.107.2059-.1902.0008-.001.002-.002.0028-.0028.0018-.0023.0039-.0061.0057-.0085.0396-.0536.0747-.1236.1107-.1931.0188-.0377.0372-.0866.0554-.1292.2048-.4622.362-1.1536.538-1.9635.0541-.2703.1092-.4864.1633-.7027.4326-.9733 1.0266-1.8382 1.6213-2.6492.9733-1.3518 1.8928-2.5962 1.7846-4.0561-1.784-3.4608-4.2718-4.0017-5.5695-4.272-.2163-.0541-.3233-.0539-.4856-.108-1.3382-.2433-2.4945-.3953-3.6046-.3648zm5.0428 14.3788a9.8602 9.8602 0 0 0-.0326-.9824c-.0541-.703-1.1892-1.46-2.7032-1.8386-.588-.1336-1.1764-.2142-1.7448-.2356-.539-.0137-1.0657.0248-1.5546.1277-1.2436.2704-2.2162.9193-2.811 1.8925l.0511 1.431c.6672-.3558 1.7326-.8747 3.139-.9994.0662-.0059.1368-.0059.2044-.0099.1177-.013.2667-.044.4444-.044 1.6075 0 3.2682.5336 4.8767 1.6483.039-.2744.0611-.549.071-.8234l.044.0227c.0028-.0622.0143-.1268.0156-.1888zM11.256.0578c.1239-.0034.2538.01.379.0114-.23-.0022-.4588.0026-.6871.0156.103-.0061.2046-.0242.308-.027zm.4983.0156c.6552.014 1.3255.0711 2.0387.1803-.6834-.0987-1.3646-.1671-2.0387-.1803zm-1.3147.0554c-.076.0087-.1527.0133-.2285.0241-.8168.1167-1.7742.7015-2.75 1.045.3545-.1323.7143-.2957 1.0747-.4501C9.0765.4774 9.6705.207 10.1571.1529c.0939-.0139.1886-.0133.2825-.0241zm-.2285.24c.1622 0 .3787-.0002.5409.0539-.1425-.0357-.2595-.026-.3706-.0142a1.174 1.174 0 0 1 .3166.0681c.5796 1.0012-.4264 5.2791-.6786 8.1492.1559 1.0276.3138 1.9963.4628 2.7201-.7029-1.7843-1.4067-4.921-1.5148-7.354-.054-.9733.001-1.8386.2172-2.4874C9.401.8557 9.7244.4228 10.2111.3687zm3.1361.271c-.811 2.1088-.9184 6.1092-.9725 7.3528-.054.5407-.0001 1.73.054 2.5952 0 .2163.054.4325.054.6488 0-.2163-.054-.3786-.054-.5948-.4326-3.2442-.974-7.1362.9185-10.002zm3.352.3777c-.2704 2.1628-1.4047 3.191-1.7832 5.2998-.1081 1.6762-.325 3.6222-.379 5.2984-.0541-1.6762-.0007-3.4601.2697-5.2444.2703-1.8384.8651-3.6776 1.8925-5.3538zm-10.381.433c-.3581.1194-.632.248-.8575.3805.2317-.1358.4996-.2666.8575-.3805zm.2101.1974c.2155.0025.4384.0734.6006.2357-.0067-.004-.0078-.0033-.0142-.0071.1331.0929.2666.2093.3932.3847-.2036.9673.2553 3.0317.0398 4.6694.0763 1.5485.0717 3.1804.849 4.4594-.9796-1.5107-1.176-3.4375-1.3218-5.236-.1128-1.0907-.2035-2.0969-.4642-2.9033-.144-.3047-.2684-.5745-.3833-.822-.0247-.0369-.0447-.0784-.071-.1135-.1082-.1082-.1619-.2696-.1619-.3777 0-.054.0539-.1618.108-.1618.054-.0541.1616-.0553.2157-.1094a1.013 1.013 0 0 1 .2101-.0184zm-1.3459.6133c-.0604.0201-.0923.041-.1405.061.1768-.034.3617.0339.5196.318-.1877.8916.4364 3.3685.4288 5.104.3124 1.8478.5496 3.8498 1.5716 5.1152C6.3723 11.5076 5.886 9.1286 5.5076 7.128 5.183 5.56 4.9125 4.2086 4.3718 3.776c-.054-.1081-.1079-.163-.1079-.2711 0-.1622-.0002-.3786.1079-.5949-.2772.6337-.4047 1.2673-.3706 1.901-.0445-.6487.0857-1.2905.3706-1.901 0-.054.054-.0538.054-.1079.012-.016.0314-.0349.044-.0511.0618-.0983.1308-.189.2257-.257.0557-.0615.0965-.1191.159-.1817-.0526.0555-.0872.1092-.1335.1647.0273-.018.0523-.0368.0838-.0525.1081-.1082.2154-.1633.3776-.1633zm-.3776.1633c-.0038.0075-.0076.0111-.0114.0184.0125-.0099.0242-.0208.037-.0298-.0074.0037-.0182.0077-.0256.0114zm14.7608 1.1343c-.0017.0052-.004.0104-.0057.0156.0378-.005.0751-.0173.1135-.0156-.0378-.0022-.0763.0103-.115.0199-.8634 2.6418-1.8874 5.2844-2.9118 7.9262a.0184.0184 0 0 1-.0015.0028c-.0874.4652-.234.8842-.5395 1.1898.4326-.4867.4854-1.1907.5395-2.0558.054-.811.0544-1.6761.487-2.5413 0-.0531.0012-.1058.0525-.159.0003-.0009.0012-.0019.0015-.0028.0973-.3524.202-.6885.3166-1.018.4183-1.2896 1.1396-3.1653 2.0131-3.3405.0163-.0052.034-.018.0497-.0213zM8.3726 16.2113l-.3238.1079c.1623.2163.2696.379.3777.433.1081.054.2168.108.379.108.0541 0 .1618 0 .2159-.054l.812-.2698c.0541 0 .1078-.054.1619-.054.1081 0 .1616 0 .2697.054l.2712.2698.2697-.054c-.1081-.1622-.2695-.3236-.3776-.3776-.1082-.0541-.2169-.1094-.379-.1094h-.108l-.866.3252h-.1618c-.1082 0-.2157 0-.2698-.054-.054-.054-.163-.1629-.2712-.3251zm-2.5953.541c-.2703.1621-.649.4324-1.1897.6487-.5407.2163-.9734.4325-1.1897.6488-.2163.2163-.3237.4326-.3237.6488 0 .1082.0537.1632.1618.2172.054.0541.1632.0539.2172.108.757.3244 1.5133.7019 2.2162 1.0803.1082.0541.2171.1632.2712.2173.054.054.1078.054.1618.054.1082 0 .2695-.0538.3777-.162.1081-.108.1632-.217.1632-.325 0-.1082-.055-.1618-.1632-.2158 0 0-.4328-.2165-1.1898-.541-.4866-.2162-.9179-.4326-1.1883-.5948.1623-.2704.486-.4865.9726-.7028.5407-.2163.9196-.4326 1.0818-.5948.054-.0541.054-.1078.054-.1619 0-.054-.0539-.1631-.108-.2172-.054-.054-.163-.1079-.2711-.1079zm11.247 0c-.054 0-.1618.0537-.2158.1078-.0541.1081-.1093.1632-.1093.2172v.054c.1622.1622.3797.2695.7041.3776.2704.054.5403.1632.8107.2172.3244.1082.5407.2693.6488.4856v.0553c0 .0541-.1088.1616-.3251.2698-.1082.054-.3245.2167-.5949.433-.2703.1622-.4326.3236-.5948.3776-.2163.1082-.3776.217-.4316.3252-.0541.054-.054.1077-.054.1618 0 .1081.0539.1077.108.2158.054.1081.1616.1093.2157.1093.054 0 .1078-.0554.1619-.0554.2703-.1622.6492-.3782 1.0818-.7567.4866-.3784.8655-.6484 1.0818-.8106.2163-.1082.3237-.2169.3237-.379 0-.0541.0002-.1618-.1079-.2159-.3785-.4325-.9185-.7022-1.5674-.9185-.1081-.0541-.2704-.1092-.5948-.1633-.1622-.054-.3249-.1079-.433-.1079zm-2.9743.8106c-.2704 0-.4866.055-.6488.2172-.2163.1622-.2699.4323-.2158.7567 0 .2703.1075.4865.2697.7027.1622.2163.3786.3252.5949.3252.1622 0 .2708-.0553.433-.1094.2703-.1622.379-.4319.379-.9185 0-.3785-.109-.6485-.2711-.8107-.1622-.1081-.3246-.1632-.541-.1632zm-4.4877.054c-.2704 0-.4866.055-.6488.2171-.2163.1622-.27.4323-.2158.7567 0 .2704.1075.4865.2697.7028s.3786.3251.5949.3251c.1622 0 .2708-.0552.433-.1093.2703-.1622.3776-.432.3776-.9186 0-.4325-.1075-.7025-.2697-.8106-.1622-.1082-.3247-.1633-.541-.1633zm0 .6501c.1622 0 .2711.1076.2711.2698 0 .1622-.163.2697-.2711.2697-.1622 0-.2698-.1075-.2698-.2697s.1076-.2698.2698-.2698zm4.3798.054c.1622 0 .2711.1075.2711.2697 0 .1082-.109.2698-.2711.2698-.1622 0-.2698-.1076-.2698-.2698 0-.1622.1076-.2697.2698-.2697zm-2.7032 2.1083l.1619.3237c.054.1081.1076.163.2158.2711.054.054.163.1619.2712.1619h.1078c.1082 0 .1618 0 .2158-.054.0541-.054.1632-.0538.2173-.1079l.1618-.1618c.054-.054.108-.1092.108-.1633.054-.054.0537-.1078.1078-.1618 0-.0541.054-.108.054-.108-.0541.1082-.1618.2156-.2158.3238-.1082.054-.1616.1632-.2698.1632-.1081.0541-.217.054-.3251.054s-.2157.0001-.2697-.054c-.1082 0-.1632-.0538-.2173-.1079l-.1618-.1632c-.054-.0541-.1078-.1618-.1619-.2158zm-.866 1.0278c-1.1355 0-1.8377 1.5136-3.4598.1619-.4326 2.6494 2.7583 2.866 4.11 1.7306.9192-.811.6475-1.9465-.6502-1.8925zm2.8664 0c-1.2977-.054-1.568 1.0815-.6488 1.8925 1.3518 1.1355 4.5412.9188 4.1087-1.7306-1.6221 1.3517-2.2703-.1619-3.4599-.1619z", "hackerrank": "M0 0v24h24V0zm9.95 8.002h1.805c.061 0 .111.05.111.111v7.767c0 .061-.05.111-.11.111H9.95c-.061 0-.111-.05-.111-.11v-2.87H7.894v2.87c0 .06-.05.11-.11.11H5.976a.11.11 0 01-.11-.11V8.112c0-.06.05-.11.11-.11h1.806c.061 0 .11.05.11.11v2.869H9.84v-2.87c0-.06.05-.11.11-.11zm2.999 0h5.778c.061 0 .111.05.111.11v7.767a.11.11 0 01-.11.112h-5.78a.11.11 0 01-.11-.11V8.111c0-.06.05-.11.11-.11z"}
+_GITHUB_ICON = "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12\"/></svg>"
 
 
-@docs_router.get("/", response_class=HTMLResponse, tags=["Documentation"])
-async def get_custom_documentation():
-    """
-    Serves the custom HTML API documentation page.
-    """
-    return HTMLResponse(content=docs_html_content)
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-@docs_router.post("/render-markdown")
-async def render_markdown_api(request: Request):
-    data = await request.json()
-    markdown_text = data.get("markdown", "")
-    html = render_markdown(markdown_text)
-    return JSONResponse({"html": html})
+def _section_of(path: str) -> str | None:
+    p = path.strip("/")
+    for s in ("profile", "stats", "topics", "contests", "rating", "heatmap", "badges"):
+        if p == s or p.endswith("/" + s):
+            return s
+    segs = [x for x in p.split("/") if x]
+    if len(segs) == 1 and segs[0].startswith("{"):
+        return "summary"
+    return None
+
+
+def _params_of(path: str) -> list[tuple[str, str]]:
+    rows = []
+    for t in re.findall(r"{([^}]+)}", path):
+        if t.endswith("s") and t not in ("handle", "username", "userid", "userids"):
+            desc = f"Comma-separated list of {PLATFORM} handles."
+        elif t == "userids":
+            desc = f"Comma-separated list of {PLATFORM} handles."
+        else:
+            desc = f"The {PLATFORM} {PARAM} to look up."
+        rows.append((t, desc))
+    return rows
+
+
+def _example_block(section: str, empty: bool) -> str | None:
+    platform, username = PLATFORM.lower(), SAMPLE
+    data: dict | None
+    if section == "summary":
+        data = {"totalSolved": 1263, "totalActiveDays": 608}
+    elif section == "profile":
+        data = {
+            "displayName": "Shaurya Rahlon", "username": username, "avatar": "https://...",
+            "country": "India", "countryFlag": None,
+            "institution": None,
+            "company": None, "bio": "Building things.", "websites": ["https://example.dev"],
+            "social": {
+                "github": f"https://github.com/{username}",
+                "twitter": None,
+                "linkedin": f"https://linkedin.com/in/{username}",
+            },
+            "verified": False,
+        }
+    elif section == "stats":
+        data = {
+            "totalSolved": 859, "totalQuestions": 3000, "acceptanceRate": 65.5,
+            "byDifficulty": {"easy": 267, "medium": 472, "hard": 120},
+            "topicAnalysis": [
+                {"topic": "Arrays", "count": 506},
+                {"topic": "Dynamic Programming", "count": 152},
+            ],
+        }
+    elif section == "topics":
+        data = {"topicAnalysis": [
+            {"topic": "Arrays", "count": 506},
+            {"topic": "Dynamic Programming", "count": 152},
+            {"topic": "Graphs", "count": 88},
+        ]}
+    elif section == "heatmap":
+        data = {
+            "totalSubmissions": 592, "totalActiveDays": 608, "currentStreak": 4,
+            "longestStreak": 138, "maxDailySubmissions": 12,
+            "firstActiveDate": "2024-01-03", "lastActiveDate": "2026-05-29",
+            "dailyContributions": [{"date": "2024-01-03", "count": 3, "level": 1}],
+            "yearlyContributions": [{"year": 2025, "totalSubmissions": 320, "activeDays": 120}],
+        }
+    elif section == "badges":
+        data = {"count": 0, "active": None, "list": []} if empty else {
+            "count": 4,
+            "active": {"id": "pull-shark", "name": "Pull Shark", "icon": "https://github.githubassets.com/assets/pull-shark-default-498c279a747d.png", "level": "x3"},
+            "list": [
+                {"id": "pull-shark", "name": "Pull Shark", "icon": "https://github.githubassets.com/assets/pull-shark-default-498c279a747d.png", "level": "x3"},
+                {"id": "pair-extraordinaire", "name": "Pair Extraordinaire", "icon": "https://github.githubassets.com/assets/pair-extraordinaire-default-579438a20e01.png", "level": None},
+                {"id": "quickdraw", "name": "Quickdraw", "icon": "https://github.githubassets.com/assets/quickdraw-default-39c6aec8ff89.png", "level": None},
+                {"id": "yolo", "name": "YOLO", "icon": "https://github.githubassets.com/assets/yolo-default-be0bbff04951.png", "level": None},
+            ],
+        }
+    else:
+        return None
+    envelope = {"status": "success", "platform": platform, "username": username,
+                "cached": False, "data": data}
+    return json.dumps(envelope, indent=2)
+
+
+def _endpoint_rows(endpoints: list[tuple[str, str, str]], is_legacy: bool = False) -> str:
+    out = []
+    for method, path, summary in endpoints:
+        section = _section_of(path)
+        params = _params_of(path)
+        if params:
+            prows = "".join(
+                f'<tr><td><code>{n}</code></td><td>string</td><td><span class="req">required</span></td>'
+                f"<td>{d}</td></tr>"
+                for n, d in params
+            )
+            ptable = (
+                '<div class="ep-sub">Path parameters</div>'
+                '<table class="ptable"><thead><tr><th>Name</th><th>Type</th><th></th>'
+                f"<th>Description</th></tr></thead><tbody>{prows}</tbody></table>"
+            )
+        else:
+            ptable = '<div class="ep-sub">Path parameters</div><p class="ep-note">None.</p>'
+        example = _example_block(section, empty="Empty" in summary) if section else None
+        if example:
+            block = (
+                '<div class="ep-sub">Response &middot; 200 OK</div>'
+                '<div class="code small"><div class="cap"><span class="dot"></span>application/json'
+                f'<button class="copy">Copy</button></div><pre>{_esc(example)}</pre></div>'
+            )
+        elif is_legacy:
+            block = (
+                '<div class="ep-sub">Response &middot; 200 OK</div>'
+                '<p class="ep-note">Deprecated alias &mdash; returns the standard envelope '
+                "wrapping the legacy payload.</p>"
+            )
+        else:
+            block = (
+                '<div class="ep-sub">Response &middot; 200 OK</div>'
+                '<p class="ep-note">No inline example for this shape &mdash; see the '
+                '<a class="link" href="/docs">OpenAPI schema</a> for the exact response.</p>'
+            )
+        out.append(
+            '<div class="ep"><button class="ep-head" aria-expanded="false">'
+            f'<span class="verb">{method}</span><code class="ep-path">{path}</code>'
+            f'<span class="ep-desc">{summary}</span><span class="chev">&rsaquo;</span></button>'
+            f'<div class="ep-body">{ptable}{block}</div></div>'
+        )
+    return "".join(out)
+
+
+def _playground_rows(endpoints: list[tuple[str, str, str]]) -> str:
+    out = []
+    for method, path, summary in endpoints:
+        out.append(
+            f'<div class="ep" data-path="{_esc(path)}">'
+            '<div class="ep-head pg-row" role="button" tabindex="0">'
+            f'<span class="verb">{method}</span>'
+            f'<code class="ep-path">{path}</code>'
+            f'<span class="ep-desc">{summary}</span>'
+            '<span class="pg-status"></span>'
+            '<button type="button" class="pg-run-btn">Run</button>'
+            '<span class="chev">&rsaquo;</span>'
+            "</div>"
+            '<div class="ep-body">'
+            '<pre class="pg-ep-resp"><span class="pg-placeholder">Run this endpoint to see the live response here.</span></pre>'
+            "</div>"
+            "</div>"
+        )
+    return "".join(out)
+
+
+def _topbar(logo_svg: str, show_menu_btn: bool = True) -> str:
+    menu_btn = '<button class="menu-btn" aria-label="Toggle navigation">&#9776;</button>' if show_menu_btn else ""
+    return f"""
+<header class="topbar">
+  {menu_btn}
+  <a class="brand" href="/"><span class="glyph">{logo_svg}</span>{PLATFORM}<span class="sub">/ API</span></a>
+  <nav class="topnav">
+    <a href="/">Home</a>
+    <a href="/docs">OpenAPI</a>
+    <a href="/redoc">ReDoc</a>
+    <a class="icon" href="https://github.com/{REPO}" target="_blank" rel="noreferrer" title="View source on GitHub" aria-label="GitHub repository">{_GITHUB_ICON}</a>
+    <a href="{CODETRACE_URL}" target="_blank" rel="noreferrer" title="Browse every platform on CodeTrace">CodeTrace&nbsp;&#8599;</a>
+    <a class="cta" href="/playground">Try it</a>
+  </nav>
+</header>"""
+
+
+def _playground_html() -> str:
+    logo_svg = f'<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="{_LOGOS[PLATFORM_KEY]}"/></svg>'
+    canonical_rows = _playground_rows(CANONICAL_ENDPOINTS)
+    legacy_section = ""
+    if LEGACY_ENDPOINTS:
+        legacy_section = f"""
+  <div class="pg-group-label">
+    <span>Legacy endpoints &middot; {len(LEGACY_ENDPOINTS)}</span>
+    <button type="button" class="pg-legacy-toggle" aria-expanded="false">Show<span class="chev">&rsaquo;</span></button>
+  </div>
+  <div class="eps pg-legacy-list">{_playground_rows(LEGACY_ENDPOINTS)}</div>
+"""
+    body = f"""
+{_topbar(logo_svg, show_menu_btn=False)}
+<main class="pg-main">
+  <div class="pg-eyebrow">Live Playground &middot; {PLATFORM}</div>
+  <h1 class="pg-h1">Try every {PLATFORM} endpoint</h1>
+  <p class="pg-sub">Enter a {PARAM} once, then run any endpoint below straight against the live API. Requests are made directly from your browser &mdash; nothing is sent anywhere else.</p>
+
+  <div class="pg-bar">
+    <form class="pg-form" autocomplete="off">
+      <div class="pg-bar-row">
+        <div class="pg-input-wrap">
+          <span class="pg-input-icon">{_SEARCH_SVG}</span>
+          <input class="pg-input" type="text" placeholder="Enter {PLATFORM} {PARAM} (e.g. {SAMPLE})" aria-label="{PLATFORM} {PARAM}"/>
+          <button type="button" class="pg-input-clear" aria-label="Clear {PARAM}" tabindex="-1">&times;</button>
+          <div class="pg-recent"></div>
+        </div>
+        <button class="pg-btn pg-runall" type="submit">{_SEARCH_SVG}Run all</button>
+      </div>
+      <div class="pg-progress"><div class="pg-progress-bar"></div></div>
+    </form>
+    <p class="pg-hint">Path parameters such as <code class="ic">{{{PARAM}}}</code> are filled in with the value above. Prefer raw JSON in a new tab? Open <a class="link" href="{TRY_PATH}">{TRY_PATH}</a>.</p>
+  </div>
+
+  <div class="pg-group-label"><span>Canonical endpoints &middot; {len(CANONICAL_ENDPOINTS)}</span></div>
+  <div class="eps pg-canonical-list">{canonical_rows}</div>
+  {legacy_section}
+
+  <p class="pg-foot-note">Want every platform in one place? Check out <a class="link" href="{CODETRACE_URL}" target="_blank" rel="noreferrer">CodeTrace</a>.</p>
+</main>
+"""
+    script = f"var PLATFORM_KEY={json.dumps(PLATFORM_KEY)};{_PLAYGROUND_JS}"
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"/>'
+        f"<title>{PLATFORM} Playground</title>"
+        '<link rel="preconnect" href="https://fonts.googleapis.com"/>'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>'
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>'
+        f"<style>:root{{--accent:{ACCENT};}}</style>"
+        f"<style>{_BASE_CSS}{_PLAYGROUND_CSS}</style></head><body>"
+        f"{body}<script>{script}</script></body></html>"
+    )
+
+
+
+
+def _docs_html(title_suffix: str = "Stats API") -> str:
+    param = "{" + PARAM + "}"
+    logo_svg = f'<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="{_LOGOS[PLATFORM_KEY]}"/></svg>'
+    canonical = _endpoint_rows(CANONICAL_ENDPOINTS)
+    legacy = (
+        f'<div class="eps">{_endpoint_rows(LEGACY_ENDPOINTS, is_legacy=True)}</div>'
+        if LEGACY_ENDPOINTS
+        else '<p>No legacy aliases &mdash; every path already uses the canonical route files.</p>'
+    )
+
+    curl_sample = (
+        f'<span class="cmt"># Fetch a {PLATFORM} profile</span>\n'
+        f'curl <span data-origin></span>/{SAMPLE}/profile'
+    )
+    envelope_sample = _esc(
+        "{\n"
+        '  "status": "success",\n'
+        f'  "platform": "{PLATFORM.lower()}",\n'
+        f'  "{PARAM}": "{SAMPLE}",\n'
+        '  "cached": false,\n'
+        '  "data": { ... }\n'
+        "}"
+    )
+
+    body = f"""
+{_topbar(logo_svg)}
+<div class="wrap">
+  <aside class="side">
+    <div class="search">{_SEARCH_SVG}<input placeholder="Search the docs..." aria-label="Search"/><kbd>/</kbd></div>
+    <div class="navgroup"><h4>Get Started</h4>
+      <a href="#introduction" data-nav>Introduction</a>
+      <a href="#quickstart" data-nav>Quickstart</a>
+      <a href="#envelope" data-nav>Response Envelope</a>
+    </div>
+    <div class="navgroup"><h4>Endpoints</h4>
+      <a href="#canonical" data-nav>Canonical</a>
+      <a href="#legacy" data-nav>Legacy</a>
+    </div>
+    <div class="navgroup"><h4>Reference</h4>
+      <a href="/playground">Live Playground</a>
+      <a href="/docs">OpenAPI Explorer</a>
+      <a href="/redoc">ReDoc</a>
+      <a href="{CODETRACE_URL}" target="_blank" rel="noreferrer">CodeTrace &#8599;</a>
+    </div>
+  </aside>
+
+  <main class="doc">
+    <section id="introduction">
+      <div class="eyebrow">Stat API &middot; {PLATFORM}</div>
+      <h1 class="title">{PLATFORM} {title_suffix}</h1>
+      <p class="lede">{DESCRIPTION}</p>
+      <p class="lede">Every canonical endpoint shares one response envelope across all platforms, so you can swap providers without rewriting your client. Legacy aliases stay available and are clearly marked.</p>
+      <div class="metarow">
+        <span class="chip">REST</span>
+        <span class="chip">JSON</span>
+        <span class="chip">No auth</span>
+        <span class="chip">{param}</span>
+      </div>
+    </section>
+
+    <div class="steps">
+      <section class="section" id="quickstart">
+        <div class="section-head"><span class="step">1</span><h2>Make your first request</h2></div>
+        <p>Send a <code class="ic">GET</code> request to any handle. Replace <code class="ic">{SAMPLE}</code> with the {PARAM} you want to inspect &mdash; no API key required.</p>
+        <div class="code">
+          <div class="cap"><span class="dot"></span>Terminal<button class="copy">Copy</button></div>
+          <pre>{curl_sample}</pre>
+        </div>
+        <div class="callout">
+          <span class="ic">i</span>
+          <div><span class="t">Tip</span>
+            <p>Prefer a browser? Try the <a class="link" href="/playground">live playground</a>, open <a class="link" href="{TRY_PATH}">{TRY_PATH}</a> for raw JSON, or explore every route interactively in the <a class="link" href="/docs">OpenAPI explorer</a>.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="envelope">
+        <div class="section-head"><span class="step">2</span><h2>Response envelope</h2></div>
+        <p>Successful responses follow one consistent shape. The <code class="ic">data</code> object carries the endpoint-specific payload while the outer fields stay identical everywhere.</p>
+        <div class="code">
+          <div class="cap"><span class="dot"></span>200 OK &middot; application/json<button class="copy">Copy</button></div>
+          <pre>{envelope_sample}</pre>
+        </div>
+      </section>
+
+      <section class="section" id="canonical">
+        <div class="section-head"><span class="step">3</span><h2>Canonical endpoints</h2></div>
+        <p>The canonical surface &mdash; build against these. Click any endpoint to see its path parameters and an example response.</p>
+        <div class="eps">{canonical}</div>
+      </section>
+
+      <section class="section" id="legacy">
+        <div class="section-head"><span class="step">4</span><h2>Legacy compatibility</h2></div>
+        <p>Kept working for existing integrations. Prefer the canonical routes above for anything new.</p>
+        {legacy}
+      </section>
+    </div>
+
+    <div class="foot">
+      <span>{PLATFORM} {title_suffix} &middot; part of the Stat API</span>
+      <span><a href="/docs">OpenAPI</a> &middot; <a href="/redoc">ReDoc</a></span>
+    </div>
+  </main>
+
+  <aside class="toc">
+    <h5>On this page</h5>
+    <a href="#introduction" data-toc>Introduction</a>
+    <a href="#quickstart" data-toc>Quickstart</a>
+    <a href="#envelope" data-toc>Response Envelope</a>
+    <a href="#canonical" data-toc>Canonical Endpoints</a>
+    <a href="#legacy" data-toc>Legacy Compatibility</a>
+  </aside>
+</div>
+"""
+
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"/>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"/>'
+        f"<title>{PLATFORM} {title_suffix}</title>"
+        '<link rel="preconnect" href="https://fonts.googleapis.com"/>'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>'
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>'
+        f"<style>:root{{--accent:{ACCENT};}}</style>"
+        f"<style>{_BASE_CSS}</style></head><body>"
+        f"{body}<script>{_JS}</script></body></html>"
+    )
+
+
+docs_html_content = _docs_html()
+playground_html_content = _playground_html()
+
+
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def docs() -> HTMLResponse:
+    return HTMLResponse(docs_html_content)
+
+
+@router.get("/playground", response_class=HTMLResponse, include_in_schema=False)
+async def playground() -> HTMLResponse:
+    return HTMLResponse(playground_html_content)

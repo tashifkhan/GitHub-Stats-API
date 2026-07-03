@@ -1,10 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Path
 from typing import List
 
-from modules.github import (
-    OrganizationContribution,
-    PullRequestDetail,
-)
+from models.pull_requests import OrganizationContribution, PullRequestDetail
 from routes.dependencies import get_pr_service
 from services.pr_service import PRService
 
