@@ -10,7 +10,7 @@ from models.contributions import (
 )
 from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
-from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
+from models.repositories import Contributor, OriginalRepo, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "GraphQLResponse",
     "LanguageData",
     "OrganizationContribution",
+    "OriginalRepo",
     "PinnedRepo",
     "PullRequestDetail",
     "ReleaseAsset",
