@@ -227,6 +227,8 @@ async def get_user_pinned(
     - Programming languages used
     - Number of commits
     - Number of stars
+    - Number of forks
+    - Original upstream repository for forked repositories
     - README content (decoded Markdown)
     - Latest releases (including release notes and asset download links)
     
@@ -244,9 +246,17 @@ async def get_user_pinned(
                             "description": "A cool project.",
                             "live_website_url": "https://example.com",
                             "languages": ["Python", "JavaScript"],
-                            "num_commits": 42,
-                            "stars": 25,
-                            "readme": "# RepoName\n\nProject documentation in Markdown.",
+                             "num_commits": 42,
+                             "stars": 25,
+                             "forks": 8,
+                             "is_fork": True,
+                             "original_repo": {
+                                 "name": "upstream-project",
+                                 "full_name": "original-owner/upstream-project",
+                                 "owner": "original-owner",
+                                 "url": "https://github.com/original-owner/upstream-project",
+                             },
+                             "readme": "# RepoName\n\nProject documentation in Markdown.",
                             "releases": [
                                 {
                                     "id": 123456,

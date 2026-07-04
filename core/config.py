@@ -3,6 +3,8 @@ import os
 
 class CacheRateLimitSettings:
     redis_url = os.getenv("REDIS_URL")
+    upstash_redis_rest_url = os.getenv("UPSTASH_REDIS_REST_URL")
+    upstash_redis_rest_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
     cache_ttl_seconds = int(os.getenv("API_CACHE_TTL_SECONDS", "3600"))
     invalid_user_cache_ttl_seconds = int(os.getenv("INVALID_USER_CACHE_TTL_SECONDS", "300"))
     rate_limit_ip_requests = int(os.getenv("RATE_LIMIT_IP_REQUESTS", "60"))

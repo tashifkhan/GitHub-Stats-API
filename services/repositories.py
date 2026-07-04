@@ -12,7 +12,7 @@ from models.analytics import LanguageData
 from models.commits import CommitDetail
 from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
-from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
+from models.repositories import Contributor, OriginalRepo, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
 
 BASE_GITHUB_URL = "https://github.com"
@@ -57,6 +57,22 @@ def _decode_readme_to_markdown(content_b64: Optional[str]) -> Optional[str]:
         return text or None
     except Exception:
         return None
+
+
+def _repo_summary(repo: Optional[Dict]) -> Optional[OriginalRepo]:
+    if not isinstance(repo, dict):
+        return None
+
+    owner = repo.get("owner")
+    owner_login = owner.get("login") if isinstance(owner, dict) else None
+    name = repo.get("name")
+    full_name = repo.get("full_name")
+    url = repo.get("html_url")
+
+    if not all(isinstance(value, str) and value for value in (name, full_name, owner_login, url)):
+        return None
+
+    return OriginalRepo(name=name, full_name=full_name, owner=owner_login, url=url)
 
 
 async def _fetch_releases(
@@ -217,6 +233,9 @@ async def fetch_repo_details(
 
     num_commits = await _get_commit_count(client, owner, repo_name, token)
     stars_count = repo.get("stargazers_count", 0)
+    forks_count = repo.get("forks_count", repo.get("forks", 0)) or 0
+    is_fork = bool(repo.get("fork"))
+    original_repo = _repo_summary(repo.get("source") or repo.get("parent")) if is_fork else None
 
     await asyncio.gather(
         get_readme(), get_languages(), get_contributors(), get_releases()
@@ -242,6 +261,9 @@ async def fetch_repo_details(
         languages=languages_list,
         num_commits=num_commits,
         stars=stars_count,
+        forks=forks_count,
+        is_fork=is_fork,
+        original_repo=original_repo,
         readme=readme_content_markdown,
         contributors=contributors_list,
         releases=releases_list,

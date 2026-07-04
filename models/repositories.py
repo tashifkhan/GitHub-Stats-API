@@ -27,6 +27,12 @@ class RepoRelease(BaseModel):
     published_at: Optional[str] = None
     assets: List[ReleaseAsset] = Field(default_factory=list)
 
+class OriginalRepo(BaseModel):
+    name: str
+    full_name: str
+    owner: str
+    url: str
+
 class RepoDetail(BaseModel):
     title: str
     description: Optional[str]
@@ -34,6 +40,9 @@ class RepoDetail(BaseModel):
     languages: List[str]
     num_commits: int
     stars: int = 0
+    forks: int = 0
+    is_fork: bool = False
+    original_repo: Optional[OriginalRepo] = None
     readme: Optional[str]
     contributors: List[Contributor] = Field(default_factory=list)
     releases: List[RepoRelease] = Field(default_factory=list)
