@@ -13,6 +13,7 @@ from routes.dependencies import (
 )
 from services import canonical_mapper
 from services.analytics_service import AnalyticsService
+from services.stats_svg import stats_svg_response
 
 analytics_router = APIRouter()
 
@@ -361,6 +362,36 @@ async def get_profile_views_count(
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict[str, Any]:
     return await analytics_service.get_profile_views_count(username, increment, base)
+
+
+@analytics_router.get(
+    "/{username}/stats/svg",
+    tags=["User Analytics"],
+    summary="Stats SVG card",
+    description="Embeddable SVG card of commit totals and language topics. Cached for 24 hours.",
+    responses={200: {"content": {"image/svg+xml": {}}}},
+)
+async def get_user_stats_svg(
+    username: str = Path(..., description="GitHub username"),
+    theme: str = Query("dark", description="Card theme: dark or light"),
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated list of languages to exclude from language stats",
+    ),
+    excluded: Optional[List[str]] = Query(
+        None,
+        description="Legacy list-style language exclusions",
+    ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
+):
+    excluded_list = parse_excluded_languages(
+        exclude=exclude,
+        excluded=excluded,
+        default=[],
+    )
+    stats = await analytics_service.get_user_stats(username, excluded_list)
+    data = canonical_mapper.stats_from(stats)
+    return stats_svg_response("github", username, data, theme=theme)
 
 
 @analytics_router.get(
