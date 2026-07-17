@@ -368,7 +368,10 @@ async def get_profile_views_count(
     "/{username}/stats/svg",
     tags=["User Analytics"],
     summary="Stats SVG card",
-    description="Embeddable SVG card of commit totals and language topics. Cached for 24 hours.",
+    description=(
+        "Embeddable SVG card of commit totals, stars, streaks, and language topics. "
+        "Use `exclude` to omit languages (comma-separated). Cached for 24 hours."
+    ),
     responses={200: {"content": {"image/svg+xml": {}}}},
 )
 async def get_user_stats_svg(
@@ -391,7 +394,24 @@ async def get_user_stats_svg(
     )
     stats = await analytics_service.get_user_stats(username, excluded_list)
     data = canonical_mapper.stats_from(stats)
-    return stats_svg_response("github", username, data, theme=theme)
+    try:
+        stars = await analytics_service.get_user_stars(username)
+        total_stars = getattr(stars, "total_stars", None)
+    except Exception:
+        total_stars = None
+    extras = {
+        "totalStars": total_stars,
+        "currentStreak": stats.currentStreak,
+        "longestStreak": stats.longestStreak,
+    }
+    return stats_svg_response(
+        "github",
+        username,
+        data,
+        theme=theme,
+        exclude=excluded_list,
+        extras=extras,
+    )
 
 
 @analytics_router.get(
