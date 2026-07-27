@@ -69,6 +69,7 @@ Fetches comprehensive statistics for a user, including language stats, contribut
 Returns repository-level data including:
 
 - Decoded README content as Markdown (`readme`)
+- GitHub topics / tags (`topics`)
 - Latest releases (`releases`)
 - Release notes/body in Markdown (`releases[].body`)
 - Release asset download links (`releases[].assets[].download_url`)
@@ -79,6 +80,8 @@ Example:
 [
   {
     "title": "RepoName",
+    "languages": ["Python", "JavaScript"],
+    "topics": ["fastapi", "api", "dashboard"],
     "readme": "# RepoName\n\nProject documentation in markdown.",
     "releases": [
       {

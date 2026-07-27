@@ -226,6 +226,7 @@ async def get_user_pinned(
     - Repository name and description
     - Live website URL (if available in description)
     - Programming languages used
+    - GitHub topics / tags
     - Number of commits
     - Number of stars
     - README content (decoded Markdown)
@@ -245,6 +246,7 @@ async def get_user_pinned(
                             "description": "A cool project.",
                             "live_website_url": "https://example.com",
                             "languages": ["Python", "JavaScript"],
+                            "topics": ["fastapi", "api", "dashboard"],
                             "num_commits": 42,
                             "stars": 25,
                             "readme": "# RepoName\n\nProject documentation in Markdown.",

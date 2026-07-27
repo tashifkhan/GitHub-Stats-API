@@ -51,6 +51,13 @@ async def get_user_pinned_repos(
                                 stargazerCount
                                 forkCount
                                 primaryLanguage {{ name }}
+                                repositoryTopics(first: 20) {{
+                                    nodes {{
+                                        topic {{
+                                            name
+                                        }}
+                                    }}
+                                }}
                             }}
                         }}
                     }}
@@ -68,6 +75,14 @@ async def get_user_pinned_repos(
     pinned: List[PinnedRepo] = []
     for edge in edges:
         node = edge.get("node") or {}
+        topic_nodes = (
+            (node.get("repositoryTopics") or {}).get("nodes") or []
+        )
+        topics = [
+            t["topic"]["name"]
+            for t in topic_nodes
+            if isinstance(t, dict) and (t.get("topic") or {}).get("name")
+        ]
         pinned.append(
             PinnedRepo(
                 name=node.get("name") or "",
@@ -80,6 +95,7 @@ async def get_user_pinned_repos(
                     if node.get("primaryLanguage")
                     else None
                 ),
+                topics=topics,
             )
         )
     return pinned

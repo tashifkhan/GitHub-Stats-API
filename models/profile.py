@@ -8,3 +8,4 @@ class PinnedRepo(BaseModel):
     stars: int
     forks: int
     primary_language: Optional[str] = None
+    topics: List[str] = Field(default_factory=list)

@@ -32,6 +32,7 @@ class RepoDetail(BaseModel):
     description: Optional[str]
     live_website_url: Optional[str]
     languages: List[str]
+    topics: List[str] = Field(default_factory=list)
     num_commits: int
     stars: int = 0
     readme: Optional[str]

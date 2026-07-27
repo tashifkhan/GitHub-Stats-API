@@ -235,11 +235,19 @@ async def fetch_repo_details(
     else:
         live_url = _extract_url_from_description(description)
 
+    topics_raw = repo.get("topics") or []
+    topics_list = (
+        [str(t) for t in topics_raw if t]
+        if isinstance(topics_raw, list)
+        else []
+    )
+
     return RepoDetail(
         title=repo_name,
         description=description,
         live_website_url=live_url,
         languages=languages_list,
+        topics=topics_list,
         num_commits=num_commits,
         stars=stars_count,
         readme=readme_content_markdown,
