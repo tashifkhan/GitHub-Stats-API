@@ -35,3 +35,5 @@ profile_views.json
 .DS_Store
 
 tmp/
+.vercel
+.env*
