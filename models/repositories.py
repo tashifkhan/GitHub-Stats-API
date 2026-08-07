@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
+from models.attribution import LanguageContribution
+
 class Contributor(BaseModel):
     login: str
     avatar_url: str
@@ -38,3 +40,17 @@ class RepoDetail(BaseModel):
     readme: Optional[str]
     contributors: List[Contributor] = Field(default_factory=list)
     releases: List[RepoRelease] = Field(default_factory=list)
+
+    # Whether this repo is a fork of someone else's project.
+    is_fork: bool = False
+
+    # Everything below describes only the requested user's own commits, so a
+    # fork reports the patches they wrote rather than the upstream codebase.
+    # Populated when the endpoint is called with attribution enabled.
+    user_commits: int = 0
+    user_additions: int = 0
+    user_deletions: int = 0
+    user_files_changed: int = 0
+    user_languages: List[LanguageContribution] = Field(default_factory=list)
+    # The user's share of the repo's total line additions, 0-100.
+    contribution_percentage: Optional[float] = None

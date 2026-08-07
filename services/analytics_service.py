@@ -3,10 +3,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from models.analytics import GitHubStatsResponse, LanguageData
+from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
 from models.repositories import RepoDetail
 from models.stars import StarsData
 from services.achievements import get_user_achievements
+from services.attribution import get_user_contributions
 from services.commits import get_all_commits
 from services.contributions import (
     calculate_current_streak,
@@ -14,7 +16,7 @@ from services.contributions import (
     calculate_total_commits,
     get_contribution_graphs,
 )
-from services.languages import get_language_stats
+from services.languages import get_attributed_language_stats, get_language_stats
 from services.profile import (
     get_user_pinned_repos,
     get_user_profile,
@@ -38,9 +40,30 @@ class AnalyticsService:
         self.token = token
 
     async def get_user_language_stats(
-        self, username: str, excluded_languages: List[str]
+        self,
+        username: str,
+        excluded_languages: List[str],
+        attributed: bool = True,
+        include_forks: bool = True,
     ) -> List[LanguageData]:
+        if attributed:
+            return await get_attributed_language_stats(
+                username, self.token, excluded_languages, include_forks=include_forks
+            )
         return await get_language_stats(username, self.token, excluded_languages)
+
+    async def get_user_contribution_breakdown(
+        self,
+        username: str,
+        excluded_languages: List[str],
+        include_forks: bool = True,
+    ) -> ContributionLanguageStats:
+        return await get_user_contributions(
+            username,
+            self.token,
+            excluded_languages=excluded_languages,
+            include_forks=include_forks,
+        )
 
     async def get_user_profile(self, username: str) -> Dict[str, Any]:
         return await get_user_profile(username, self.token)
@@ -84,9 +107,11 @@ class AnalyticsService:
                 )
             raise exc
 
-    async def get_user_repos(self, username: str) -> List[RepoDetail]:
+    async def get_user_repos(
+        self, username: str, attributed: bool = True
+    ) -> List[RepoDetail]:
         try:
-            return await get_repo_details(username, self.token)
+            return await get_repo_details(username, self.token, attributed=attributed)
         except HTTPException as exc:
             if exc.status_code == 404:
                 raise HTTPException(
@@ -124,7 +149,10 @@ class AnalyticsService:
         return {"username": username, "views": views, "incremented": False}
 
     async def get_user_stats(
-        self, username: str, excluded_languages: List[str]
+        self,
+        username: str,
+        excluded_languages: List[str],
+        attributed: bool = True,
     ) -> GitHubStatsResponse:
         try:
             contribution_data = await get_contribution_graphs(username, self.token)
@@ -137,8 +165,8 @@ class AnalyticsService:
             raise exc
 
         try:
-            language_stats = await get_language_stats(
-                username, self.token, excluded_languages
+            language_stats = await self.get_user_language_stats(
+                username, excluded_languages, attributed=attributed
             )
         except HTTPException as exc:
             if exc.status_code == 404:

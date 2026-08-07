@@ -8,12 +8,15 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
+from core.config import attribution_settings
 from models.analytics import LanguageData
+from models.attribution import RepoContribution
 from models.commits import CommitDetail
 from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
+from services.attribution import AttributionBudget, analyze_repo_contribution
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -172,8 +175,35 @@ async def _fetch_contributors(
         return []
 
 
+async def _attribute_repos(
+    client: httpx.AsyncClient, repos: List[Dict], username: str, token: str
+) -> Dict[str, RepoContribution]:
+    """Per-user contribution for each repo, keyed by ``owner/name``."""
+    budget = AttributionBudget(attribution_settings.max_commit_details)
+    semaphore = asyncio.Semaphore(attribution_settings.concurrency)
+
+    results = await asyncio.gather(
+        *(
+            analyze_repo_contribution(client, repo, username, token, budget, semaphore)
+            for repo in repos[: attribution_settings.max_repos]
+            if isinstance(repo, dict)
+        ),
+        return_exceptions=True,
+    )
+
+    attributed: Dict[str, RepoContribution] = {}
+    for result in results:
+        if isinstance(result, RepoContribution):
+            attributed[result.full_name] = result
+            attributed.setdefault(result.repo, result)
+    return attributed
+
+
 async def fetch_repo_details(
-    client: httpx.AsyncClient, repo: Dict, token: str
+    client: httpx.AsyncClient,
+    repo: Dict,
+    token: str,
+    contribution: Optional[RepoContribution] = None,
 ) -> Optional[RepoDetail]:
     repo_name = repo["name"]
     owner = repo["owner"]["login"]
@@ -253,16 +283,29 @@ async def fetch_repo_details(
         readme=readme_content_markdown,
         contributors=contributors_list,
         releases=releases_list,
+        is_fork=bool(repo.get("fork")),
+        user_commits=contribution.commits if contribution else 0,
+        user_additions=contribution.additions if contribution else 0,
+        user_deletions=contribution.deletions if contribution else 0,
+        user_files_changed=contribution.files_changed if contribution else 0,
+        user_languages=contribution.languages if contribution else [],
+        contribution_percentage=(
+            contribution.contribution_percentage if contribution else None
+        ),
     )
 
 
-async def get_repo_details(username: str, token: str) -> List[RepoDetail]:
+async def get_repo_details(
+    username: str, token: str, attributed: bool = True
+) -> List[RepoDetail]:
     """
     Get detailed information for all public repositories of a user.
 
     Args:
         username: GitHub username
         token: GitHub API token
+        attributed: Also measure what the user personally contributed to each
+            repo (their own commits only), filling the ``user_*`` fields
 
     Returns:
         List of repository details
@@ -281,9 +324,19 @@ async def get_repo_details(username: str, token: str) -> List[RepoDetail]:
             if not repos:
                 return []
 
+            contributions: Dict[str, RepoContribution] = {}
+            if attributed:
+                contributions = await _attribute_repos(client, repos, username, token)
+
             # Fetch details for each repository concurrently
             repo_details_tasks = [
-                fetch_repo_details(client, repo, token) for repo in repos
+                fetch_repo_details(
+                    client,
+                    repo,
+                    token,
+                    contributions.get(repo.get("full_name") or repo.get("name", "")),
+                )
+                for repo in repos
             ]
             repo_details = await asyncio.gather(
                 *repo_details_tasks, return_exceptions=True

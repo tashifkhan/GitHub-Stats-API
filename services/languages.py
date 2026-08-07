@@ -14,6 +14,7 @@ from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
+from services.attribution import get_user_contributions
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -86,3 +87,28 @@ async def get_language_stats(
             for name, bytes in language_totals.items()
         ]
         return sorted(language_stats, key=lambda x: x.percentage, reverse=True)
+
+
+async def get_attributed_language_stats(
+    username: str,
+    token: str,
+    excluded_languages: List[str],
+    include_forks: bool = True,
+) -> List[LanguageData]:
+    """Language split weighted by the lines the user personally wrote.
+
+    Unlike :func:`get_language_stats`, this ignores code written by other
+    contributors and counts only the user's own commits, so a fork of a large
+    upstream project contributes just the patches they authored.
+    """
+    stats = await get_user_contributions(
+        username,
+        token,
+        excluded_languages=excluded_languages,
+        include_forks=include_forks,
+        include_repositories=False,
+    )
+    return [
+        LanguageData(name=language.name, percentage=language.percentage)
+        for language in stats.languages
+    ]
