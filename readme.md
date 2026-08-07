@@ -168,13 +168,31 @@ may run. So:
 - `/{username}/repos` reads the attribution cache but never walks diffs itself,
   because it is already the heaviest endpoint in the API.
 
-**Set `REDIS_URL`.** Without it there is no cache, nothing accumulates between
-requests, and the attributed split will never reach its coverage threshold.
+**A cache is required.** Without one nothing accumulates between requests and
+the attributed split never reaches its coverage threshold, so the API quietly
+serves whole-repo bytes forever. Configure either:
+
+- `REDIS_URL` — a `redis://` / `rediss://` URL, used in preference when set; or
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` — what Vercel's Upstash
+  integration provisions. These are used over Upstash's REST API, which also
+  suits serverless better than a pooled TCP connection.
+
+`/{username}/contributions/breakdown` reports `cache_enabled`, plus a `status`
+and `message` saying why a walk stopped (`complete`, `deadline`, `rate_limited`,
+`cache_disabled`) — check those first when the attributed split does not appear.
 
 To compute attribution up front rather than waiting for it to trickle in:
 
 ```bash
 python scripts/warm_attribution.py tashifkhan
+```
+
+If the deployment's cache credentials are not readable locally, warm it through
+the API instead — each call measures more and caches it:
+
+```bash
+for i in $(seq 6); do curl -s https://your-api/tashifkhan/contributions/breakdown \
+  | python -c 'import json,sys; d=json.load(sys.stdin); print(d["coverage"], d["status"])'; done
 ```
 
 Tuning knobs (all optional, with defaults): `ATTRIBUTION_INLINE_DEADLINE` (3.5s

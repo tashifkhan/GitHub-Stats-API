@@ -357,7 +357,7 @@ async def get_repo_details(
             # Fetch details for each repository concurrently, but capped: every
             # repo costs five requests, and firing hundreds at once draws
             # GitHub's secondary rate limiter, which slows the whole batch down.
-            slots = asyncio.Semaphore(attribution_settings.concurrency)
+            slots = asyncio.Semaphore(attribution_settings.repo_detail_concurrency)
 
             async def detail_for(repo: Dict) -> Optional[RepoDetail]:
                 async with slots:

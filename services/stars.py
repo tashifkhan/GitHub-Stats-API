@@ -8,6 +8,8 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
+from services.client import raise_for_github_status
+
 from models.analytics import LanguageData
 from models.commits import CommitDetail
 from models.profile import PinnedRepo
@@ -62,10 +64,7 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
         repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
         try:
             response = await client.get(repos_url, headers=github_headers(token))
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=404, detail="User not found or API error"
-                )
+            raise_for_github_status(response, username)
 
             repos = response.json()
             if not repos:
@@ -109,6 +108,10 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
 
             return StarsData(total_stars=total_stars, repositories=repo_details)
 
+        except HTTPException:
+            # Already carries the right status (404 missing user, 503 throttled);
+            # the catch-all below would otherwise rewrite it as a 500.
+            raise
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise HTTPException(status_code=404, detail="User not found")

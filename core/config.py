@@ -3,6 +3,11 @@ import os
 
 class CacheRateLimitSettings:
     redis_url = os.getenv("REDIS_URL")
+    # Vercel's Upstash integration provisions these instead of a REDIS_URL, so
+    # they are accepted as an equivalent transport rather than leaving a
+    # seemingly-configured deployment running with no cache.
+    upstash_rest_url = os.getenv("UPSTASH_REDIS_REST_URL")
+    upstash_rest_token = os.getenv("UPSTASH_REDIS_REST_TOKEN")
     cache_ttl_seconds = int(os.getenv("API_CACHE_TTL_SECONDS", "3600"))
     invalid_user_cache_ttl_seconds = int(os.getenv("INVALID_USER_CACHE_TTL_SECONDS", "300"))
     rate_limit_ip_requests = int(os.getenv("RATE_LIMIT_IP_REQUESTS", "60"))
@@ -36,6 +41,12 @@ class AttributionSettings:
     # How many repos may be measured at once. Bounded so that when the deadline
     # expires only a few repos are half-done, and the rest fall back cleanly.
     repo_concurrency = int(os.getenv("ATTRIBUTION_REPO_CONCURRENCY", "6"))
+    # How many repos /repos may fetch details for at once. Higher than the
+    # attribution caps because these are plain cheap reads with no deadline to
+    # degrade against: that endpoint issues five requests per repo and simply
+    # has to finish, so throttling it too hard is what pushed it over the
+    # function timeout.
+    repo_detail_concurrency = int(os.getenv("REPO_DETAIL_CONCURRENCY", "24"))
     request_timeout_seconds = float(os.getenv("ATTRIBUTION_REQUEST_TIMEOUT", "20"))
     cache_ttl_seconds = int(os.getenv("ATTRIBUTION_CACHE_TTL_SECONDS", "604800"))
     stats_retries = int(os.getenv("ATTRIBUTION_STATS_RETRIES", "3"))
@@ -46,8 +57,13 @@ class AttributionSettings:
     # endpoint still has its own work to do afterwards, so this stays well under
     # the platform's function timeout (10s on Vercel Hobby) rather than near it.
     inline_deadline_seconds = float(os.getenv("ATTRIBUTION_INLINE_DEADLINE", "3.5"))
-    # Budget for the dedicated breakdown endpoint, which is expected to be slow.
-    breakdown_deadline_seconds = float(os.getenv("ATTRIBUTION_BREAKDOWN_DEADLINE", "45"))
+    # Budget for the dedicated breakdown endpoint. Larger than the inline one
+    # since warming is its whole purpose, but still inside the function timeout:
+    # it is served over HTTP like everything else, so a walk long enough to
+    # finish in one go would just be killed by the gateway. Raise it only if the
+    # hosting plan allows a longer maxDuration. Offline warming is not bound by
+    # this -- scripts/warm_attribution.py passes its own, much longer deadline.
+    breakdown_deadline_seconds = float(os.getenv("ATTRIBUTION_BREAKDOWN_DEADLINE", "8"))
     # Stop measuring when GitHub reports fewer than this many calls left in the
     # hour. A cold walk costs hundreds of requests, and without a floor it will
     # drain the 5000/hour budget and take every other endpoint down with it.
