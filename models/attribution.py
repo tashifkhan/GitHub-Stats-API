@@ -69,4 +69,15 @@ class ContributionLanguageStats(BaseModel):
     # eligible repos went unmeasured. Call again to widen the cached set.
     partial: bool = False
 
+    # Why the walk stopped where it did. Without this a thin result is
+    # indistinguishable from a broken one: an empty breakdown looks identical
+    # whether the GitHub quota ran out, the cache is cold, or Redis is missing.
+    # One of: complete, deadline, rate_limited, cache_disabled.
+    status: str = "complete"
+    # Plain-English version of ``status``, safe to show to a caller.
+    message: str = ""
+    # False when REDIS_URL is unset. Nothing persists between requests then, so
+    # coverage can never build up and the attributed split stays unreachable.
+    cache_enabled: bool = True
+
     repositories: List[RepoContribution] = Field(default_factory=list)

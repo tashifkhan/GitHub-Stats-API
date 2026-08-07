@@ -436,6 +436,51 @@ def _build_language_list(
     return sorted(languages, key=lambda item: (item.lines, item.name), reverse=True)
 
 
+def _explain(
+    progress: WalkProgress,
+    guard: RateLimitGuard,
+    cache_enabled: bool,
+    cache_only: bool,
+) -> Tuple[str, str]:
+    """Say why a walk stopped where it did.
+
+    An empty breakdown is ambiguous on its own -- exhausted GitHub quota, a
+    cold cache and a missing Redis all look the same from outside -- and that
+    ambiguity is expensive to debug in production. Worst cause wins, since a
+    tripped rate limit explains the thin coverage that follows from it.
+    """
+    if guard.exhausted:
+        return (
+            "rate_limited",
+            "GitHub API quota ran low, so attribution stopped early to leave "
+            "budget for other endpoints. Retry after the hourly reset.",
+        )
+
+    if progress.deferred == 0:
+        return "complete", "Every eligible repository was measured."
+
+    if not cache_enabled:
+        return (
+            "cache_disabled",
+            "REDIS_URL is not set, so measurements cannot persist between "
+            "requests and coverage will never build up. Set it to enable "
+            "attributed language stats.",
+        )
+
+    if cache_only:
+        return (
+            "deadline",
+            "Served from cache only. Warm the rest with "
+            "scripts/warm_attribution.py or the breakdown endpoint.",
+        )
+
+    return (
+        "deadline",
+        "The time budget ran out before every repository was measured. "
+        "Call again to continue from the cached results.",
+    )
+
+
 def _cache_key(full_name: str, username: str, version_token: str) -> str:
     return f"gh:attr:{CACHE_VERSION}:{full_name}:{username.lower()}:{version_token}"
 
@@ -706,6 +751,8 @@ async def get_user_contributions(
 
     contributions.sort(key=lambda item: item.additions, reverse=True)
     considered = progress.resolved + progress.deferred
+    cache_enabled = cache.redis_enabled()
+    status, message = _explain(progress, guard, cache_enabled, cache_only)
 
     return ContributionLanguageStats(
         username=username,
@@ -724,5 +771,8 @@ async def get_user_contributions(
         repos_considered=considered,
         coverage=round(progress.resolved / considered, 4) if considered else 0.0,
         partial=progress.deferred > 0,
+        status=status,
+        message=message,
+        cache_enabled=cache_enabled,
         repositories=contributions if include_repositories else [],
     )
