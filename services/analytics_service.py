@@ -1,7 +1,9 @@
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from core.config import attribution_settings
 from models.analytics import GitHubStatsResponse, LanguageData
 from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
@@ -47,8 +49,14 @@ class AnalyticsService:
         include_forks: bool = True,
     ) -> List[LanguageData]:
         if attributed:
+            # Bounded so this endpoint cannot outlive the function timeout; it
+            # falls back to whole-repo bytes when the walk covers too little.
             return await get_attributed_language_stats(
-                username, self.token, excluded_languages, include_forks=include_forks
+                username,
+                self.token,
+                excluded_languages,
+                include_forks=include_forks,
+                deadline_seconds=attribution_settings.inline_deadline_seconds,
             )
         return await get_language_stats(username, self.token, excluded_languages)
 
@@ -63,6 +71,7 @@ class AnalyticsService:
             self.token,
             excluded_languages=excluded_languages,
             include_forks=include_forks,
+            deadline_seconds=attribution_settings.breakdown_deadline_seconds,
         )
 
     async def get_user_profile(self, username: str) -> Dict[str, Any]:
@@ -154,27 +163,41 @@ class AnalyticsService:
         excluded_languages: List[str],
         attributed: bool = True,
     ) -> GitHubStatsResponse:
-        try:
-            contribution_data = await get_contribution_graphs(username, self.token)
-        except HTTPException as exc:
-            if exc.status_code == 404:
+        # The contribution graph and the language walk hit different APIs and
+        # neither needs the other's result, so they run together; in sequence
+        # their combined latency overran the function timeout.
+        contribution_result, language_result = await asyncio.gather(
+            get_contribution_graphs(username, self.token),
+            self.get_user_language_stats(
+                username, excluded_languages, attributed=attributed
+            ),
+            return_exceptions=True,
+        )
+
+        if isinstance(contribution_result, BaseException):
+            if (
+                isinstance(contribution_result, HTTPException)
+                and contribution_result.status_code == 404
+            ):
                 raise HTTPException(
                     status_code=404,
                     detail="User not found or API error fetching contributions",
                 )
-            raise exc
+            raise contribution_result
 
-        try:
-            language_stats = await self.get_user_language_stats(
-                username, excluded_languages, attributed=attributed
-            )
-        except HTTPException as exc:
-            if exc.status_code == 404:
+        if isinstance(language_result, BaseException):
+            if (
+                isinstance(language_result, HTTPException)
+                and language_result.status_code == 404
+            ):
                 raise HTTPException(
                     status_code=404,
                     detail="User not found or API error fetching language stats",
                 )
-            raise exc
+            raise language_result
+
+        contribution_data = contribution_result
+        language_stats = language_result
 
         return GitHubStatsResponse(
             status="success",

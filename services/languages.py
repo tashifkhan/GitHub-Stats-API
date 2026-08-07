@@ -14,7 +14,9 @@ from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
+from core.config import attribution_settings
 from services.attribution import get_user_contributions
+from services.client import raise_for_github_status
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -42,8 +44,7 @@ async def get_language_stats(
             headers={"Authorization": f"Bearer {token}"},
         )
 
-        if repos_response.status_code != 200:
-            raise HTTPException(status_code=404, detail="User not found or API error")
+        raise_for_github_status(repos_response, username)
 
         repos = repos_response.json()
 
@@ -94,21 +95,56 @@ async def get_attributed_language_stats(
     token: str,
     excluded_languages: List[str],
     include_forks: bool = True,
+    deadline_seconds: Optional[float] = None,
+    cache_only: bool = False,
 ) -> List[LanguageData]:
     """Language split weighted by the lines the user personally wrote.
 
     Unlike :func:`get_language_stats`, this ignores code written by other
     contributors and counts only the user's own commits, so a fork of a large
     upstream project contributes just the patches they authored.
+
+    Measuring every repo takes far longer than a request allows, so the walk is
+    bounded by ``deadline_seconds`` and falls back to whole-repo language bytes
+    whenever too few repos were covered for the mix to be honest. Each call
+    caches the repos it did measure, so coverage climbs on subsequent calls
+    until the attributed answer takes over for good.
     """
-    stats = await get_user_contributions(
-        username,
-        token,
-        excluded_languages=excluded_languages,
-        include_forks=include_forks,
-        include_repositories=False,
+    # Both run together rather than one after the other: whether the walk
+    # covers enough to be usable is only known once it finishes, and running
+    # the fallback afterwards would add its latency on top of the deadline,
+    # which is exactly what pushed this endpoint past the gateway timeout.
+    stats, legacy = await asyncio.gather(
+        get_user_contributions(
+            username,
+            token,
+            excluded_languages=excluded_languages,
+            include_forks=include_forks,
+            include_repositories=False,
+            deadline_seconds=deadline_seconds,
+            cache_only=cache_only,
+        ),
+        get_language_stats(username, token, excluded_languages),
+        return_exceptions=True,
     )
-    return [
-        LanguageData(name=language.name, percentage=language.percentage)
-        for language in stats.languages
-    ]
+
+    usable = (
+        not isinstance(stats, BaseException)
+        and bool(stats.languages)
+        # Too thin a sample: a handful of repos would misrepresent the user
+        # worse than the unattributed split does.
+        and stats.coverage >= attribution_settings.min_coverage
+    )
+
+    if usable:
+        return [
+            LanguageData(name=language.name, percentage=language.percentage)
+            for language in stats.languages
+        ]
+
+    if isinstance(legacy, BaseException):
+        # Neither route produced an answer, so surface why. The walk's own
+        # error is the more specific of the two when it has one.
+        raise stats if isinstance(stats, BaseException) else legacy
+
+    return legacy
