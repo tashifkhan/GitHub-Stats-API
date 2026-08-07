@@ -17,6 +17,7 @@ from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
 from services.attribution import AttributionBudget, analyze_repo_contribution
+from services.client import raise_for_github_status
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -178,13 +179,29 @@ async def _fetch_contributors(
 async def _attribute_repos(
     client: httpx.AsyncClient, repos: List[Dict], username: str, token: str
 ) -> Dict[str, RepoContribution]:
-    """Per-user contribution for each repo, keyed by ``owner/name``."""
-    budget = AttributionBudget(attribution_settings.max_commit_details)
-    semaphore = asyncio.Semaphore(attribution_settings.concurrency)
+    """Per-user contribution for each repo, keyed by ``owner/name``.
+
+    Cache-only: this endpoint is already the heaviest one in the API, and
+    measuring commit diffs here would push it past the function timeout. Repos
+    show their ``user_*`` fields once the attribution cache has been warmed by
+    ``/{username}/contributions/breakdown`` or the warm script.
+    """
+    # Nothing is spent in cache-only mode, so the budget and semaphore are just
+    # the arguments the signature wants.
+    budget = AttributionBudget(0)
+    semaphore = asyncio.Semaphore(1)
 
     results = await asyncio.gather(
         *(
-            analyze_repo_contribution(client, repo, username, token, budget, semaphore)
+            analyze_repo_contribution(
+                client,
+                repo,
+                username,
+                token,
+                budget,
+                semaphore,
+                cache_only=True,
+            )
             for repo in repos[: attribution_settings.max_repos]
             if isinstance(repo, dict)
         ),
@@ -245,11 +262,22 @@ async def fetch_repo_details(
         nonlocal releases_list
         releases_list = await _fetch_releases(client, owner, repo_name, token)
 
-    num_commits = await _get_commit_count(client, owner, repo_name, token)
+    num_commits = 0
+
+    async def get_commit_count():
+        nonlocal num_commits
+        num_commits = await _get_commit_count(client, owner, repo_name, token)
+
     stars_count = repo.get("stargazers_count", 0)
 
+    # All five run together: awaiting the commit count first cost an extra
+    # serial round trip per repo, which across a large account was seconds.
     await asyncio.gather(
-        get_readme(), get_languages(), get_contributors(), get_releases()
+        get_readme(),
+        get_languages(),
+        get_contributors(),
+        get_releases(),
+        get_commit_count(),
     )
 
     description = repo.get("description")
@@ -304,8 +332,8 @@ async def get_repo_details(
     Args:
         username: GitHub username
         token: GitHub API token
-        attributed: Also measure what the user personally contributed to each
-            repo (their own commits only), filling the ``user_*`` fields
+        attributed: Fill the ``user_*`` fields from cached own-commit
+            attribution. Reads the cache only, never walks commit diffs
 
     Returns:
         List of repository details
@@ -316,9 +344,7 @@ async def get_repo_details(
         try:
             response = await client.get(repos_url, headers=github_headers(token))
             if response.status_code != 200:
-                raise HTTPException(
-                    status_code=404, detail="User not found or API error"
-                )
+                raise_for_github_status(response, username)
 
             repos = response.json()
             if not repos:
@@ -328,18 +354,24 @@ async def get_repo_details(
             if attributed:
                 contributions = await _attribute_repos(client, repos, username, token)
 
-            # Fetch details for each repository concurrently
-            repo_details_tasks = [
-                fetch_repo_details(
-                    client,
-                    repo,
-                    token,
-                    contributions.get(repo.get("full_name") or repo.get("name", "")),
-                )
-                for repo in repos
-            ]
+            # Fetch details for each repository concurrently, but capped: every
+            # repo costs five requests, and firing hundreds at once draws
+            # GitHub's secondary rate limiter, which slows the whole batch down.
+            slots = asyncio.Semaphore(attribution_settings.concurrency)
+
+            async def detail_for(repo: Dict) -> Optional[RepoDetail]:
+                async with slots:
+                    return await fetch_repo_details(
+                        client,
+                        repo,
+                        token,
+                        contributions.get(
+                            repo.get("full_name") or repo.get("name", "")
+                        ),
+                    )
+
             repo_details = await asyncio.gather(
-                *repo_details_tasks, return_exceptions=True
+                *(detail_for(repo) for repo in repos), return_exceptions=True
             )
 
             # Filter out None values and exceptions
@@ -351,6 +383,10 @@ async def get_repo_details(
 
             return valid_repo_details
 
+        except HTTPException:
+            # Already carries the right status (404 missing user, 503 throttled);
+            # the catch-all below would otherwise rewrite it as a 500.
+            raise
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise HTTPException(status_code=404, detail="User not found")
