@@ -33,8 +33,12 @@ analytics_router = APIRouter()
     - Code written by other contributors in the user's own repos is ignored
     - Vendored paths (`node_modules`, `dist`, lockfiles, minified bundles) are skipped
 
-    Pass `attributed=false` for the legacy behaviour, which sums whole-repository
-    language bytes regardless of who wrote them.
+    Measuring commit diffs cannot finish inside one request, so the walk is
+    time-boxed and its per-repo results are cached. Until enough repos are
+    cached to be representative this falls back to whole-repository language
+    bytes, which is also what `attributed=false` returns outright. Warm the
+    cache with `scripts/warm_attribution.py` to get the attributed split
+    immediately, or hit `/{username}/contributions/breakdown` repeatedly.
     """,
     response_description="List of top programming languages with usage percentages",
     responses={
@@ -105,6 +109,12 @@ async def get_user_language_stats(
     total additions. `method` is `commits` when measured from real commit diffs,
     or `estimated` when the commit budget forced a sampled language mix scaled to
     the user's true addition total.
+
+    Walking commit diffs is slow, so each call measures only what fits in its
+    deadline and caches it. `coverage` is the fraction of eligible repos settled
+    and `partial` is true when the deadline stopped the walk early -- call again
+    to pick up where it left off, or pre-warm with `scripts/warm_attribution.py`.
+    Cached repos are re-measured only after they are pushed to again.
     """,
     responses={
         200: {
@@ -358,6 +368,11 @@ async def get_user_pinned(
     `contribution_percentage`. For a fork these describe only the patches the
     user wrote, not the upstream project.
 
+    This endpoint reads those figures from the attribution cache only -- it is
+    already the heaviest call in the API and will not walk commit diffs on top.
+    Repos show zeros until the cache is warmed by
+    `/{username}/contributions/breakdown` or `scripts/warm_attribution.py`.
+
     This endpoint provides comprehensive repository information for portfolio displays.
     """,
     response_description="List of repository details with comprehensive information",
@@ -413,8 +428,8 @@ async def get_user_repos(
     attributed: bool = Query(
         True,
         description=(
-            "Also measure what the user personally contributed to each repo "
-            "(their own commits only), filling the user_* fields"
+            "Fill the user_* fields from cached own-commit attribution. Reads "
+            "the cache only; it never walks commit diffs on this endpoint"
         ),
     ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
