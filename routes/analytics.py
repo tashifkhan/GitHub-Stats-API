@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from typing import Any, Dict, List, Optional
 
 from models.analytics import GitHubStatsResponse, LanguageData
+from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
 from models.repositories import RepoDetail
 from models.stars import StarsData
@@ -23,11 +24,17 @@ analytics_router = APIRouter()
     tags=["User Analytics"],
     summary="Get User's Programming Languages",
     description="""
-    Retrieves the top programming languages used by a GitHub user based on their repositories.
-    
-    - Excludes specified languages (default: Markdown, JSON, YAML, XML)
-    - Returns top 5 languages by usage percentage
-    - Percentages are rounded to nearest integer
+    Retrieves the top programming languages used by a GitHub user, weighted by the
+    lines the user personally wrote.
+
+    By default (`attributed=true`) only the user's own commits are counted:
+
+    - Forks contribute just the patches the user authored, not the upstream codebase
+    - Code written by other contributors in the user's own repos is ignored
+    - Vendored paths (`node_modules`, `dist`, lockfiles, minified bundles) are skipped
+
+    Pass `attributed=false` for the legacy behaviour, which sums whole-repository
+    language bytes regardless of who wrote them.
     """,
     response_description="List of top programming languages with usage percentages",
     responses={
@@ -59,6 +66,17 @@ async def get_user_language_stats(
         None,
         description="Languages to exclude from the statistics (legacy parameter)",
     ),
+    attributed: bool = Query(
+        True,
+        description=(
+            "Count only lines the user authored. Set false to sum whole-repo "
+            "language bytes including other contributors' and upstream code."
+        ),
+    ),
+    include_forks: bool = Query(
+        True,
+        description="Include forked repositories (only the user's own commits in them)",
+    ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[LanguageData]:
     excluded_languages = parse_excluded_languages(
@@ -66,7 +84,108 @@ async def get_user_language_stats(
         excluded=excluded,
         default=DEFAULT_EXCLUDED_LANGUAGES,
     )
-    return await analytics_service.get_user_language_stats(username, excluded_languages)
+    return await analytics_service.get_user_language_stats(
+        username,
+        excluded_languages,
+        attributed=attributed,
+        include_forks=include_forks,
+    )
+
+
+@analytics_router.get(
+    "/{username}/contributions/breakdown",
+    tags=["User Analytics"],
+    summary="Get User's Own-Commit Contribution Breakdown",
+    description="""
+    Per-repository breakdown of what the user personally wrote, ignoring every
+    other contributor and all upstream code in forks.
+
+    For each repository it reports the user's commit count, lines added and
+    removed, files touched, their language mix, and their share of the repo's
+    total additions. `method` is `commits` when measured from real commit diffs,
+    or `estimated` when the commit budget forced a sampled language mix scaled to
+    the user's true addition total.
+    """,
+    responses={
+        200: {
+            "description": "Successfully retrieved contribution breakdown",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "username": "tashifkhan",
+                        "languages": [
+                            {
+                                "name": "Python",
+                                "percentage": 52.4,
+                                "lines": 18420,
+                                "files": 210,
+                            }
+                        ],
+                        "total_additions": 35150,
+                        "total_deletions": 9820,
+                        "total_commits": 742,
+                        "files_changed": 1904,
+                        "repos_analyzed": 24,
+                        "forks_analyzed": 3,
+                        "repos_skipped": 0,
+                        "commits_sampled": 600,
+                        "truncated": False,
+                        "repositories": [
+                            {
+                                "repo": "some-upstream-project",
+                                "owner": "tashifkhan",
+                                "full_name": "tashifkhan/some-upstream-project",
+                                "is_fork": True,
+                                "url": "https://github.com/tashifkhan/some-upstream-project",
+                                "commits": 6,
+                                "additions": 312,
+                                "deletions": 47,
+                                "files_changed": 11,
+                                "languages": [
+                                    {
+                                        "name": "Rust",
+                                        "percentage": 100.0,
+                                        "lines": 312,
+                                        "files": 11,
+                                    }
+                                ],
+                                "contribution_percentage": 0.42,
+                                "method": "commits",
+                                "truncated": False,
+                            }
+                        ],
+                    }
+                }
+            },
+        },
+        404: {"description": "User not found"},
+        500: {"description": "GitHub token configuration error"},
+    },
+)
+async def get_user_contribution_breakdown(
+    username: str = Path(..., description="GitHub username"),
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated list of languages to exclude",
+    ),
+    excluded: Optional[List[str]] = Query(
+        None,
+        description="Legacy list-style language exclusions",
+    ),
+    include_forks: bool = Query(
+        True,
+        description="Include forked repositories (only the user's own commits in them)",
+    ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
+) -> ContributionLanguageStats:
+    excluded_languages = parse_excluded_languages(
+        exclude=exclude,
+        excluded=excluded,
+        default=DEFAULT_EXCLUDED_LANGUAGES,
+    )
+    return await analytics_service.get_user_contribution_breakdown(
+        username, excluded_languages, include_forks=include_forks
+    )
 
 
 @analytics_router.get(
@@ -231,7 +350,14 @@ async def get_user_pinned(
     - Number of stars
     - README content (decoded Markdown)
     - Latest releases (including release notes and asset download links)
-    
+    - Whether the repo is a fork (`is_fork`)
+
+    With `attributed=true` (the default) each repo also carries the user's own
+    contribution, counting their commits alone: `user_commits`, `user_additions`,
+    `user_deletions`, `user_files_changed`, `user_languages` and
+    `contribution_percentage`. For a fork these describe only the patches the
+    user wrote, not the upstream project.
+
     This endpoint provides comprehensive repository information for portfolio displays.
     """,
     response_description="List of repository details with comprehensive information",
@@ -284,9 +410,16 @@ async def get_user_pinned(
 )
 async def get_user_repos(
     username: str = Path(..., description="GitHub username"),
+    attributed: bool = Query(
+        True,
+        description=(
+            "Also measure what the user personally contributed to each repo "
+            "(their own commits only), filling the user_* fields"
+        ),
+    ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[RepoDetail]:
-    return await analytics_service.get_user_repos(username)
+    return await analytics_service.get_user_repos(username, attributed=attributed)
 
 
 @analytics_router.get(
@@ -387,6 +520,10 @@ async def get_user_stats_svg(
         None,
         description="Legacy list-style language exclusions",
     ),
+    attributed: bool = Query(
+        True,
+        description="Weight languages by lines the user authored, ignoring other contributors",
+    ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ):
     excluded_list = parse_excluded_languages(
@@ -394,7 +531,9 @@ async def get_user_stats_svg(
         excluded=excluded,
         default=[],
     )
-    stats = await analytics_service.get_user_stats(username, excluded_list)
+    stats = await analytics_service.get_user_stats(
+        username, excluded_list, attributed=attributed
+    )
     data = canonical_mapper.stats_from(stats)
     try:
         stars = await analytics_service.get_user_stars(username)
@@ -506,6 +645,10 @@ async def get_user_stats(
         None,
         description="Legacy list-style language exclusions",
     ),
+    attributed: bool = Query(
+        True,
+        description="Weight languages by lines the user authored, ignoring other contributors",
+    ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ):
     excluded_list = parse_excluded_languages(
@@ -514,7 +657,9 @@ async def get_user_stats(
         default=[],
     )
 
-    stats = await analytics_service.get_user_stats(username, excluded_list)
+    stats = await analytics_service.get_user_stats(
+        username, excluded_list, attributed=attributed
+    )
     data = canonical_mapper.stats_from(stats)
     return make_envelope(username, data, legacy=stats)
 
