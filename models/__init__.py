@@ -1,4 +1,9 @@
 from models.analytics import GitHubStatsResponse, LanguageData
+from models.attribution import (
+    ContributionLanguageStats,
+    LanguageContribution,
+    RepoContribution,
+)
 from models.commits import CommitDetail
 from models.contributions import (
     ContributionCalendar,
@@ -17,12 +22,15 @@ __all__ = [
     "CommitDetail",
     "ContributionCalendar",
     "ContributionDay",
+    "ContributionLanguageStats",
     "ContributionsCollection",
     "Contributor",
     "GitHubStatsResponse",
     "GithubUser",
     "GraphQLResponse",
+    "LanguageContribution",
     "LanguageData",
+    "RepoContribution",
     "OrganizationContribution",
     "PinnedRepo",
     "PullRequestDetail",
