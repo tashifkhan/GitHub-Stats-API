@@ -17,10 +17,18 @@ Cost control, in order of preference:
 
 Per-repo results are cached in Redis keyed by the repo's ``pushed_at``, so a repo
 is only re-measured after it receives new commits.
+
+A full cold walk costs minutes, far more than a serverless request allows, so
+every walk carries a :class:`Deadline`. Cached repos are always free; uncached
+ones are measured newest-first until the deadline expires, after which the rest
+resolve from cache or not at all. The result reports how much it covered, and
+callers that need a trustworthy language mix fall back to whole-repo bytes when
+coverage is too thin.
 """
 
 import asyncio
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -32,12 +40,86 @@ from models.attribution import (
     LanguageContribution,
     RepoContribution,
 )
-from services.client import GITHUB_API, github_headers
+from services.client import (
+    GITHUB_API,
+    github_headers,
+    raise_for_github_status,
+    rate_limit_remaining,
+)
 from services.language_map import detect_language, filter_languages, is_vendored
 
 CACHE_VERSION = "v1"
 
 _LAST_PAGE_RE = re.compile(r'<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"')
+
+
+class Deadline:
+    """When a walk must stop issuing new requests.
+
+    Two things end a walk: running out of wall-clock time, and running the
+    GitHub hourly budget down to its floor. Work already in flight is allowed
+    to finish either way -- this only gates *starting* more, which keeps the
+    response inside the platform's function timeout instead of being killed
+    mid-flight by the gateway.
+    """
+
+    def __init__(self, seconds: Optional[float], guard: Optional["RateLimitGuard"] = None):
+        self._expires_at = None if seconds is None else time.monotonic() + seconds
+        self._guard = guard
+
+    @property
+    def expired(self) -> bool:
+        if self._guard is not None and self._guard.exhausted:
+            return True
+        return self._expires_at is not None and time.monotonic() >= self._expires_at
+
+    @property
+    def remaining(self) -> float:
+        if self._guard is not None and self._guard.exhausted:
+            return 0.0
+        if self._expires_at is None:
+            return float("inf")
+        return max(0.0, self._expires_at - time.monotonic())
+
+
+class RateLimitGuard:
+    """Halts a walk once GitHub's hourly budget runs low.
+
+    Attribution is by far the most request-hungry thing this API does, so
+    without a floor one cold walk can spend the entire 5000/hour allowance and
+    leave every other endpoint answering 403s until the window resets. Any
+    response carrying a remaining-count keeps this up to date, so the walk
+    notices the budget draining without spending a request to ask.
+    """
+
+    def __init__(self, floor: int):
+        self._floor = floor
+        self._tripped = False
+
+    def observe(self, response: httpx.Response) -> None:
+        remaining = rate_limit_remaining(response)
+        if remaining is not None and remaining < self._floor:
+            self._tripped = True
+
+    @property
+    def exhausted(self) -> bool:
+        return self._tripped
+
+
+class WalkProgress:
+    """How much of a walk actually got settled.
+
+    A repo is *resolved* once its contribution is known -- including the common
+    case of a repo the user never committed to, which is a real answer even
+    though it produces no numbers. It is *deferred* only when the deadline or
+    cache-only mode stopped it from being measured at all. Keeping the two
+    apart is what lets coverage reach 1.0 for a user whose repo list is full of
+    projects they never pushed to.
+    """
+
+    def __init__(self) -> None:
+        self.resolved = 0
+        self.deferred = 0
 
 
 class AttributionBudget:
@@ -97,13 +179,14 @@ async def _list_commit_shas(
     username: str,
     token: str,
     limit: int,
+    deadline: "Deadline",
 ) -> List[str]:
     """Newest-first SHAs authored by ``username``, capped at ``limit``."""
     shas: List[str] = []
     url = f"{GITHUB_API}/repos/{owner}/{repo}/commits"
     page = 1
 
-    while len(shas) < limit:
+    while len(shas) < limit and not deadline.expired:
         per_page = min(100, limit - len(shas))
         params = {"author": username, "per_page": str(per_page), "page": str(page)}
         try:
@@ -138,14 +221,25 @@ async def _fetch_commit_files(
     sha: str,
     token: str,
     semaphore: asyncio.Semaphore,
+    deadline: "Deadline",
+    guard: Optional["RateLimitGuard"] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Changed files for one commit. ``None`` when it should not be counted."""
     url = f"{GITHUB_API}/repos/{owner}/{repo}/commits/{sha}"
     async with semaphore:
+        # Re-checked after acquiring: this commit may have queued behind many
+        # others and the budget can have run out while it waited.
+        if deadline.expired:
+            return None
         try:
             response = await client.get(url, headers=github_headers(token))
         except Exception:
             return None
+
+    # Commit details are the bulk of a walk's spending, so watching their
+    # headers is enough to notice the hourly budget draining.
+    if guard is not None:
+        guard.observe(response)
 
     if response.status_code != 200:
         return None
@@ -168,7 +262,12 @@ async def _fetch_commit_files(
 
 
 async def _fetch_contributor_totals(
-    client: httpx.AsyncClient, owner: str, repo: str, username: str, token: str
+    client: httpx.AsyncClient,
+    owner: str,
+    repo: str,
+    username: str,
+    token: str,
+    deadline: "Deadline",
 ) -> Optional[Dict[str, int]]:
     """The user's exact additions/deletions/commits plus the repo-wide totals.
 
@@ -179,13 +278,19 @@ async def _fetch_contributor_totals(
 
     payload: Any = None
     for attempt in range(settings.stats_retries):
+        if deadline.expired:
+            return None
         try:
             response = await client.get(url, headers=github_headers(token))
         except Exception:
             return None
 
         if response.status_code == 202:
-            await asyncio.sleep(settings.stats_retry_delay_seconds * (attempt + 1))
+            # GitHub is still computing. Only wait if the budget can absorb it.
+            delay = settings.stats_retry_delay_seconds * (attempt + 1)
+            if delay >= deadline.remaining:
+                return None
+            await asyncio.sleep(delay)
             continue
         if response.status_code != 200:
             return None
@@ -342,12 +447,25 @@ async def analyze_repo_contribution(
     token: str,
     budget: AttributionBudget,
     semaphore: asyncio.Semaphore,
+    deadline: Optional[Deadline] = None,
+    cache_only: bool = False,
+    progress: Optional[WalkProgress] = None,
+    guard: Optional[RateLimitGuard] = None,
 ) -> Optional[RepoContribution]:
-    """Measure what ``username`` personally contributed to a single repository."""
+    """Measure what ``username`` personally contributed to a single repository.
+
+    Returns the cached measurement when there is one. Otherwise measures the
+    repo, unless ``cache_only`` is set or ``deadline`` has expired -- in which
+    case it returns ``None`` and the caller treats the repo as unmeasured.
+    """
+    deadline = deadline or Deadline(None)
+    progress = progress or WalkProgress()
+
     name = repo.get("name")
     owner_payload = repo.get("owner")
     owner = owner_payload.get("login") if isinstance(owner_payload, dict) else None
     if not name or not owner:
+        progress.resolved += 1
         return None
 
     full_name = repo.get("full_name") or f"{owner}/{name}"
@@ -358,16 +476,46 @@ async def analyze_repo_contribution(
     cached = await cache.get_json(cache_key)
     if cached:
         try:
-            return RepoContribution.model_validate(cached)
+            restored = RepoContribution.model_validate(cached)
+            progress.resolved += 1
+            return restored
         except Exception:
             pass
 
-    total_user_commits = await _count_user_commits(client, owner, name, username, token)
-    if total_user_commits == 0:
+    # Nothing cached, and no budget left to measure it now. A later call will
+    # pick this repo up once the earlier ones are cached and cost nothing.
+    if cache_only or deadline.expired:
+        progress.deferred += 1
         return None
 
-    sample_size = min(total_user_commits, settings.max_commits_per_repo)
-    granted = await budget.take(sample_size)
+    # List first, then reserve budget for exactly the commits that exist. Sizing
+    # the reservation from the listing keeps a repo with five commits from
+    # holding 200 slots that another repo needs.
+    shas = await _list_commit_shas(
+        client, owner, name, username, token, settings.max_commits_per_repo, deadline
+    )
+
+    # A listing that stopped short of the cap has already enumerated every
+    # commit, so the separate count request is only needed when it filled up.
+    if len(shas) < settings.max_commits_per_repo:
+        total_user_commits = len(shas)
+    else:
+        total_user_commits = await _count_user_commits(
+            client, owner, name, username, token
+        )
+
+    if total_user_commits == 0:
+        # A repo the user never committed to is settled, not deferred -- but an
+        # empty listing also happens when the deadline cut the paging short, and
+        # that repo still needs measuring on a later call.
+        if deadline.expired:
+            progress.deferred += 1
+        else:
+            progress.resolved += 1
+        return None
+
+    granted = await budget.take(len(shas))
+    shas = shas[:granted]
     truncated = granted < total_user_commits
 
     additions_by_language: Dict[str, int] = {}
@@ -375,11 +523,12 @@ async def analyze_repo_contribution(
     files_by_language: Dict[str, int] = {}
     measured_additions = measured_deletions = measured_files = 0
 
-    if granted > 0:
-        shas = await _list_commit_shas(client, owner, name, username, token, granted)
+    if shas:
         file_lists = await asyncio.gather(
             *(
-                _fetch_commit_files(client, owner, name, sha, token, semaphore)
+                _fetch_commit_files(
+                    client, owner, name, sha, token, semaphore, deadline, guard
+                )
                 for sha in shas
             )
         )
@@ -393,7 +542,9 @@ async def analyze_repo_contribution(
             measured_deletions += commit_deletions
             measured_files += commit_files
 
-    stats = await _fetch_contributor_totals(client, owner, name, username, token)
+    stats = await _fetch_contributor_totals(
+        client, owner, name, username, token, deadline
+    )
 
     contribution_percentage: Optional[float] = None
     if stats and stats["repo_additions"] > 0:
@@ -410,10 +561,18 @@ async def analyze_repo_contribution(
         # No usable diffs: spread the user's known additions over the repo's
         # language byte breakdown, which at least keeps forks proportional.
         if not stats or stats["user_additions"] <= 0:
+            # Missing stats can mean the deadline cut them off rather than the
+            # user genuinely having nothing here, so only claim this repo as
+            # settled when there was budget left to ask properly.
+            if deadline.expired:
+                progress.deferred += 1
+            else:
+                progress.resolved += 1
             return None
 
         language_bytes = await _fetch_repo_language_bytes(client, owner, name, token)
         if not language_bytes:
+            progress.resolved += 1
             return None
 
         additions_by_language = _scale(language_bytes, stats["user_additions"])
@@ -445,9 +604,17 @@ async def analyze_repo_contribution(
         truncated=truncated,
     )
 
+    if deadline.expired:
+        # The deadline cut this measurement short, so it undercounts. Hand it
+        # back for this response but leave the cache empty, otherwise a
+        # truncated figure would be served for the whole TTL.
+        progress.deferred += 1
+        return contribution
+
     await cache.set_json(
         cache_key, contribution.model_dump(), settings.cache_ttl_seconds
     )
+    progress.resolved += 1
     return contribution
 
 
@@ -457,8 +624,16 @@ async def get_user_contributions(
     excluded_languages: Optional[List[str]] = None,
     include_forks: bool = True,
     include_repositories: bool = True,
+    deadline_seconds: Optional[float] = None,
+    cache_only: bool = False,
 ) -> ContributionLanguageStats:
-    """Aggregate every repository's per-user attribution into one breakdown."""
+    """Aggregate every repository's per-user attribution into one breakdown.
+
+    ``deadline_seconds`` caps the wall-clock time spent measuring uncached
+    repos; ``cache_only`` measures nothing and reports only what is already
+    cached. Either way the result says how many repos it covered, so callers
+    can decide whether the language mix is representative enough to serve.
+    """
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         repos_url = f"{GITHUB_API}/users/{username}/repos"
         params = {"per_page": "100", "sort": "pushed", "type": "all"}
@@ -466,14 +641,7 @@ async def get_user_contributions(
             repos_url, params=params, headers=github_headers(token)
         )
 
-        if response.status_code == 404:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=404, detail="User not found")
-        if response.status_code != 200:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=502, detail="GitHub API error")
+        raise_for_github_status(response, username)
 
         repos = response.json()
         if not isinstance(repos, list) or not repos:
@@ -491,14 +659,31 @@ async def get_user_contributions(
 
         budget = AttributionBudget(settings.max_commit_details)
         semaphore = asyncio.Semaphore(settings.concurrency)
+        guard = RateLimitGuard(settings.rate_limit_floor)
+        guard.observe(response)
+        deadline = Deadline(deadline_seconds, guard)
+        repo_slots = asyncio.Semaphore(settings.repo_concurrency)
+        progress = WalkProgress()
 
-        results = await asyncio.gather(
-            *(
-                analyze_repo_contribution(
-                    client, repo, username, token, budget, semaphore
+        async def measure(repo: Dict[str, Any]) -> Optional[RepoContribution]:
+            async with repo_slots:
+                return await analyze_repo_contribution(
+                    client,
+                    repo,
+                    username,
+                    token,
+                    budget,
+                    semaphore,
+                    deadline=deadline,
+                    cache_only=cache_only,
+                    progress=progress,
+                    guard=guard,
                 )
-                for repo in candidates
-            ),
+
+        # Candidates are newest-pushed first, so when the deadline cuts the walk
+        # short the repos that were measured are the ones the user works in now.
+        results = await asyncio.gather(
+            *(measure(repo) for repo in candidates),
             return_exceptions=True,
         )
 
@@ -520,6 +705,7 @@ async def get_user_contributions(
             )
 
     contributions.sort(key=lambda item: item.additions, reverse=True)
+    considered = progress.resolved + progress.deferred
 
     return ContributionLanguageStats(
         username=username,
@@ -535,5 +721,8 @@ async def get_user_contributions(
         repos_skipped=skipped,
         commits_sampled=settings.max_commit_details - budget.remaining,
         truncated=any(item.truncated for item in contributions),
+        repos_considered=considered,
+        coverage=round(progress.resolved / considered, 4) if considered else 0.0,
+        partial=progress.deferred > 0,
         repositories=contributions if include_repositories else [],
     )

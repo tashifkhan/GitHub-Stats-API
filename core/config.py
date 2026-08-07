@@ -18,19 +18,44 @@ class CacheRateLimitSettings:
 class AttributionSettings:
     """Caps for per-user language attribution, which walks commit diffs.
 
-    The defaults keep a cold lookup under roughly 700 GitHub API calls, well
-    inside the 5000/hour authenticated budget, and results are cached per repo
-    until that repo is pushed to again.
+    Walking every commit of every repo takes minutes, so it can never run to
+    completion inside a request. Instead every walk is bounded by a wall-clock
+    deadline and each repo's result is cached in Redis keyed by its
+    ``pushed_at``. A request measures whatever fits in its deadline, caches it,
+    and falls back to whole-repo language bytes until enough repos are warm;
+    successive requests widen the cache until the attributed answer takes over.
+
+    Set ``REDIS_URL`` for that warming to persist -- without it every request
+    starts cold and the attributed path never reaches its coverage threshold.
     """
 
     max_repos = int(os.getenv("ATTRIBUTION_MAX_REPOS", "60"))
     max_commits_per_repo = int(os.getenv("ATTRIBUTION_MAX_COMMITS_PER_REPO", "200"))
     max_commit_details = int(os.getenv("ATTRIBUTION_MAX_COMMIT_DETAILS", "600"))
     concurrency = int(os.getenv("ATTRIBUTION_CONCURRENCY", "10"))
+    # How many repos may be measured at once. Bounded so that when the deadline
+    # expires only a few repos are half-done, and the rest fall back cleanly.
+    repo_concurrency = int(os.getenv("ATTRIBUTION_REPO_CONCURRENCY", "6"))
     request_timeout_seconds = float(os.getenv("ATTRIBUTION_REQUEST_TIMEOUT", "20"))
     cache_ttl_seconds = int(os.getenv("ATTRIBUTION_CACHE_TTL_SECONDS", "604800"))
     stats_retries = int(os.getenv("ATTRIBUTION_STATS_RETRIES", "3"))
     stats_retry_delay_seconds = float(os.getenv("ATTRIBUTION_STATS_RETRY_DELAY", "0.6"))
+
+    # Wall-clock budget for a walk that runs inside a normal request. A walk
+    # overruns this by however long its in-flight requests take to land, and the
+    # endpoint still has its own work to do afterwards, so this stays well under
+    # the platform's function timeout (10s on Vercel Hobby) rather than near it.
+    inline_deadline_seconds = float(os.getenv("ATTRIBUTION_INLINE_DEADLINE", "3.5"))
+    # Budget for the dedicated breakdown endpoint, which is expected to be slow.
+    breakdown_deadline_seconds = float(os.getenv("ATTRIBUTION_BREAKDOWN_DEADLINE", "45"))
+    # Stop measuring when GitHub reports fewer than this many calls left in the
+    # hour. A cold walk costs hundreds of requests, and without a floor it will
+    # drain the 5000/hour budget and take every other endpoint down with it.
+    rate_limit_floor = int(os.getenv("ATTRIBUTION_RATE_LIMIT_FLOOR", "500"))
+    # Fraction of candidate repos that must be measured before the attributed
+    # language mix is trustworthy enough to serve. Below this a partial sample
+    # would misrepresent the user, so the legacy whole-repo split is used.
+    min_coverage = float(os.getenv("ATTRIBUTION_MIN_COVERAGE", "0.7"))
 
 
 cache_rate_limit_settings = CacheRateLimitSettings()

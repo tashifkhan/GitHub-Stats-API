@@ -57,4 +57,16 @@ class ContributionLanguageStats(BaseModel):
     commits_sampled: int = 0
     truncated: bool = False
 
+    # Repos that were eligible for measurement, whether or not the deadline
+    # allowed them to be reached.
+    repos_considered: int = 0
+    # Share of those eligible repos that got settled, 0-1. Note this counts
+    # repos the user never committed to, which are a real answer -- unlike
+    # ``repos_analyzed``, which only counts repos they actually wrote code in.
+    # Callers use this to decide if the language mix is representative.
+    coverage: float = 0.0
+    # True when the wall-clock deadline stopped the walk early, so some
+    # eligible repos went unmeasured. Call again to widen the cached set.
+    partial: bool = False
+
     repositories: List[RepoContribution] = Field(default_factory=list)
