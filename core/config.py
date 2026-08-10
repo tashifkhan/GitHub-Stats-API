@@ -42,11 +42,15 @@ class AttributionSettings:
     # expires only a few repos are half-done, and the rest fall back cleanly.
     repo_concurrency = int(os.getenv("ATTRIBUTION_REPO_CONCURRENCY", "6"))
     # How many repos /repos may fetch details for at once. Higher than the
-    # attribution caps because these are plain cheap reads with no deadline to
-    # degrade against: that endpoint issues five requests per repo and simply
-    # has to finish, so throttling it too hard is what pushed it over the
-    # function timeout.
-    repo_detail_concurrency = int(os.getenv("REPO_DETAIL_CONCURRENCY", "24"))
+    # attribution caps because the lite path is only README + languages. Keep
+    # this moderate so GitHub's secondary rate limiter does not stall the batch.
+    repo_detail_concurrency = int(os.getenv("REPO_DETAIL_CONCURRENCY", "20"))
+    # Wall-clock budget for enriching repos on /repos. Leave headroom under the
+    # serverless maxDuration so partial results can still be serialized and
+    # cached; remaining repos fall back to list-endpoint skeleton fields.
+    repo_details_deadline_seconds = float(
+        os.getenv("REPO_DETAILS_DEADLINE_SECONDS", "7.5")
+    )
     request_timeout_seconds = float(os.getenv("ATTRIBUTION_REQUEST_TIMEOUT", "20"))
     cache_ttl_seconds = int(os.getenv("ATTRIBUTION_CACHE_TTL_SECONDS", "604800"))
     stats_retries = int(os.getenv("ATTRIBUTION_STATS_RETRIES", "3"))

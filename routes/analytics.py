@@ -356,11 +356,13 @@ async def get_user_pinned(
     - Live website URL (if available in description)
     - Programming languages used
     - GitHub topics / tags
-    - Number of commits
     - Number of stars
     - README content (decoded Markdown)
-    - Latest releases (including release notes and asset download links)
     - Whether the repo is a fork (`is_fork`)
+
+    By default this is the **lite** portfolio path (README + languages only) so
+    the response can finish inside a serverless time budget and warm Redis.
+    Pass `full=true` for contributors, release notes/assets, and commit counts.
 
     With `attributed=true` (the default) each repo also carries the user's own
     contribution, counting their commits alone: `user_commits`, `user_additions`,
@@ -368,12 +370,11 @@ async def get_user_pinned(
     `contribution_percentage`. For a fork these describe only the patches the
     user wrote, not the upstream project.
 
-    This endpoint reads those figures from the attribution cache only -- it is
-    already the heaviest call in the API and will not walk commit diffs on top.
-    Repos show zeros until the cache is warmed by
+    Attribution figures are read from cache only -- this endpoint will not walk
+    commit diffs. Repos show zeros until the cache is warmed by
     `/{username}/contributions/breakdown` or `scripts/warm_attribution.py`.
 
-    This endpoint provides comprehensive repository information for portfolio displays.
+    Successful responses are cached in Redis so cold timeouts do not repeat.
     """,
     response_description="List of repository details with comprehensive information",
     responses={
@@ -432,9 +433,19 @@ async def get_user_repos(
             "the cache only; it never walks commit diffs on this endpoint"
         ),
     ),
+    full: bool = Query(
+        False,
+        description=(
+            "Include contributors, releases, and commit counts. Default is the "
+            "lite path (README + languages) so the response fits a serverless "
+            "function budget and can warm the cache"
+        ),
+    ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[RepoDetail]:
-    return await analytics_service.get_user_repos(username, attributed=attributed)
+    return await analytics_service.get_user_repos(
+        username, attributed=attributed, full=full
+    )
 
 
 @analytics_router.get(

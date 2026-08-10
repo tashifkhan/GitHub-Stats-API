@@ -117,10 +117,12 @@ class AnalyticsService:
             raise exc
 
     async def get_user_repos(
-        self, username: str, attributed: bool = True
+        self, username: str, attributed: bool = True, full: bool = False
     ) -> List[RepoDetail]:
         try:
-            return await get_repo_details(username, self.token, attributed=attributed)
+            return await get_repo_details(
+                username, self.token, attributed=attributed, full=full
+            )
         except HTTPException as exc:
             if exc.status_code == 404:
                 raise HTTPException(
