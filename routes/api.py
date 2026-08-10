@@ -132,7 +132,7 @@ async def get_user_repo_details_route(
     username: str = Path(..., description="GitHub username"),
     token: str = Depends(get_github_token),
 ):
-    repos = get_user_repos(username, token)
+    repos = await get_user_repos(username, token)
 
     if repos is None:
         raise HTTPException(

@@ -1,46 +1,32 @@
 import asyncio
 import base64
-from datetime import datetime
 import re
+import time
 from typing import Dict, List, Optional, cast
 
 import httpx
-from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from core.config import attribution_settings
-from models.analytics import LanguageData
+from core import cache
+from core.config import attribution_settings, cache_rate_limit_settings
 from models.attribution import RepoContribution
-from models.commits import CommitDetail
-from models.profile import PinnedRepo
-from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
-from models.stars import StarredList, StarsData
 from services.attribution import AttributionBudget, analyze_repo_contribution
-from services.client import raise_for_github_status
+from services.client import github_headers, raise_for_github_status
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
-STAR_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-}
+
+# Portfolio consumers need README + languages most. Contributors, releases, and
+# commit counts cost three extra GitHub round-trips each and were pushing the
+# whole /repos payload past Vercel's function timeout before Redis could warm.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v2"
 
 
-def github_headers(token: str) -> Dict[str, str]:
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def github_headers(token: str) -> Dict[str, str]:
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:
+    mode = "full" if full else "lite"
+    attr = "attr" if attributed else "plain"
+    return f"{REPO_DETAILS_CACHE_PREFIX}:{username.lower()}:{mode}:{attr}"
 
 
 def _extract_url_from_description(description: Optional[str]) -> Optional[str]:
@@ -216,29 +202,86 @@ async def _attribute_repos(
     return attributed
 
 
+def _live_url_for_repo(repo: Dict) -> Optional[str]:
+    homepage_url = repo.get("homepage")
+    if (
+        homepage_url
+        and isinstance(homepage_url, str)
+        and homepage_url.startswith(("http://", "https://"))
+    ):
+        return homepage_url
+    return _extract_url_from_description(repo.get("description"))
+
+
+def _topics_for_repo(repo: Dict) -> List[str]:
+    topics_raw = repo.get("topics") or []
+    if not isinstance(topics_raw, list):
+        return []
+    return [str(t) for t in topics_raw if t]
+
+
+def _primary_language_list(repo: Dict) -> List[str]:
+    language = repo.get("language")
+    if isinstance(language, str) and language:
+        return [language]
+    return []
+
+
+def _skeleton_repo_detail(
+    repo: Dict, contribution: Optional[RepoContribution] = None
+) -> RepoDetail:
+    """List-endpoint fields only — used when the request budget is exhausted."""
+    return RepoDetail(
+        title=repo["name"],
+        description=repo.get("description"),
+        live_website_url=_live_url_for_repo(repo),
+        languages=_primary_language_list(repo),
+        topics=_topics_for_repo(repo),
+        num_commits=0,
+        stars=repo.get("stargazers_count", 0) or 0,
+        readme=None,
+        contributors=[],
+        releases=[],
+        is_fork=bool(repo.get("fork")),
+        user_commits=contribution.commits if contribution else 0,
+        user_additions=contribution.additions if contribution else 0,
+        user_deletions=contribution.deletions if contribution else 0,
+        user_files_changed=contribution.files_changed if contribution else 0,
+        user_languages=contribution.languages if contribution else [],
+        contribution_percentage=(
+            contribution.contribution_percentage if contribution else None
+        ),
+    )
+
+
 async def fetch_repo_details(
     client: httpx.AsyncClient,
     repo: Dict,
     token: str,
     contribution: Optional[RepoContribution] = None,
+    *,
+    full: bool = False,
 ) -> Optional[RepoDetail]:
     repo_name = repo["name"]
     owner = repo["owner"]["login"]
 
-    readme_content_b64 = None
     readme_content_markdown = None
-    languages_list = []
-    contributors_list = []
+    # Prefer the list payload's primary language so a languages call failure
+    # still leaves the card usable.
+    languages_list = _primary_language_list(repo)
+    contributors_list: List[Contributor] = []
     releases_list: List[RepoRelease] = []
+    num_commits = 0
 
     async def get_readme():
-        nonlocal readme_content_b64, readme_content_markdown
+        nonlocal readme_content_markdown
         readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
         try:
             readme_resp = await client.get(readme_url, headers=github_headers(token))
             if readme_resp.status_code == 200:
-                readme_content_b64 = readme_resp.json().get("content")
-                readme_content_markdown = _decode_readme_to_markdown(readme_content_b64)
+                readme_content_markdown = _decode_readme_to_markdown(
+                    readme_resp.json().get("content")
+                )
         except Exception:
             pass
 
@@ -250,7 +293,9 @@ async def fetch_repo_details(
                 languages_url, headers=github_headers(token)
             )
             if languages_resp.status_code == 200:
-                languages_list = list(languages_resp.json().keys())
+                keys = list(languages_resp.json().keys())
+                if keys:
+                    languages_list = keys
         except Exception:
             pass
 
@@ -262,52 +307,26 @@ async def fetch_repo_details(
         nonlocal releases_list
         releases_list = await _fetch_releases(client, owner, repo_name, token)
 
-    num_commits = 0
-
     async def get_commit_count():
         nonlocal num_commits
         num_commits = await _get_commit_count(client, owner, repo_name, token)
 
-    stars_count = repo.get("stargazers_count", 0)
+    # Lite path (default): README + languages only — enough for portfolio pages
+    # and ~2 GitHub calls per repo instead of 5.
+    tasks = [get_readme(), get_languages()]
+    if full:
+        tasks.extend([get_contributors(), get_releases(), get_commit_count()])
 
-    # All five run together: awaiting the commit count first cost an extra
-    # serial round trip per repo, which across a large account was seconds.
-    await asyncio.gather(
-        get_readme(),
-        get_languages(),
-        get_contributors(),
-        get_releases(),
-        get_commit_count(),
-    )
-
-    description = repo.get("description")
-    homepage_url = repo.get("homepage")
-    live_url = None
-
-    if (
-        homepage_url
-        and isinstance(homepage_url, str)
-        and homepage_url.startswith(("http://", "https://"))
-    ):
-        live_url = homepage_url
-    else:
-        live_url = _extract_url_from_description(description)
-
-    topics_raw = repo.get("topics") or []
-    topics_list = (
-        [str(t) for t in topics_raw if t]
-        if isinstance(topics_raw, list)
-        else []
-    )
+    await asyncio.gather(*tasks)
 
     return RepoDetail(
         title=repo_name,
-        description=description,
-        live_website_url=live_url,
+        description=repo.get("description"),
+        live_website_url=_live_url_for_repo(repo),
         languages=languages_list,
-        topics=topics_list,
+        topics=_topics_for_repo(repo),
         num_commits=num_commits,
-        stars=stars_count,
+        stars=repo.get("stargazers_count", 0) or 0,
         readme=readme_content_markdown,
         contributors=contributors_list,
         releases=releases_list,
@@ -324,7 +343,11 @@ async def fetch_repo_details(
 
 
 async def get_repo_details(
-    username: str, token: str, attributed: bool = True
+    username: str,
+    token: str,
+    attributed: bool = True,
+    *,
+    full: bool = False,
 ) -> List[RepoDetail]:
     """
     Get detailed information for all public repositories of a user.
@@ -334,12 +357,26 @@ async def get_repo_details(
         token: GitHub API token
         attributed: Fill the ``user_*`` fields from cached own-commit
             attribution. Reads the cache only, never walks commit diffs
+        full: When True, also fetch contributors, releases, and commit counts.
+            Default is the lite portfolio path (README + languages) so the
+            endpoint finishes inside a serverless function budget.
 
     Returns:
         List of repository details
     """
-    async with httpx.AsyncClient() as client:
-        # Get user's repositories
+    cache_key = _repo_details_cache_key(username, full=full, attributed=attributed)
+    cached = await cache.get_json(cache_key)
+    if cached and isinstance(cached.get("repos"), list):
+        try:
+            return [RepoDetail.model_validate(item) for item in cached["repos"]]
+        except Exception:
+            pass
+
+    # Leave headroom under the platform timeout so we can still serialize and
+    # write the cache even when the account has many repos.
+    deadline = time.monotonic() + attribution_settings.repo_details_deadline_seconds
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
         repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
         try:
             response = await client.get(repos_url, headers=github_headers(token))
@@ -354,32 +391,48 @@ async def get_repo_details(
             if attributed:
                 contributions = await _attribute_repos(client, repos, username, token)
 
-            # Fetch details for each repository concurrently, but capped: every
-            # repo costs five requests, and firing hundreds at once draws
-            # GitHub's secondary rate limiter, which slows the whole batch down.
             slots = asyncio.Semaphore(attribution_settings.repo_detail_concurrency)
 
             async def detail_for(repo: Dict) -> Optional[RepoDetail]:
+                contribution = contributions.get(
+                    repo.get("full_name") or repo.get("name", "")
+                )
+                if time.monotonic() >= deadline:
+                    return _skeleton_repo_detail(repo, contribution)
                 async with slots:
+                    if time.monotonic() >= deadline:
+                        return _skeleton_repo_detail(repo, contribution)
                     return await fetch_repo_details(
                         client,
                         repo,
                         token,
-                        contributions.get(
-                            repo.get("full_name") or repo.get("name", "")
-                        ),
+                        contribution,
+                        full=full,
                     )
 
             repo_details = await asyncio.gather(
                 *(detail_for(repo) for repo in repos), return_exceptions=True
             )
 
-            # Filter out None values and exceptions
             valid_repo_details: List[RepoDetail] = [
                 cast(RepoDetail, detail)
                 for detail in repo_details
                 if detail is not None and not isinstance(detail, Exception)
             ]
+
+            # Only cache when at least one README landed — a pure-skeleton
+            # timeout would otherwise poison the cache for the whole TTL.
+            if any(detail.readme for detail in valid_repo_details):
+                await cache.set_json(
+                    cache_key,
+                    {
+                        "repos": [
+                            detail.model_dump(mode="json")
+                            for detail in valid_repo_details
+                        ]
+                    },
+                    cache_rate_limit_settings.cache_ttl_seconds,
+                )
 
             return valid_repo_details
 
