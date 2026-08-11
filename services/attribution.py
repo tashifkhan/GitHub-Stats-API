@@ -12,8 +12,8 @@ Cost control, in order of preference:
    read and the result is exact.
 2. If it does not, the newest commits are sampled for the *language mix* and
    scaled up to the user's real addition total from the contributor stats.
-3. If commit diffs are unavailable entirely, the user's additions are spread
-   across the repo's language byte breakdown.
+3. If commit diffs are unavailable entirely, exact user totals from contributor
+   stats are returned without inventing a language mix from the whole project.
 
 Per-repo results are cached in Redis keyed by the repo's ``pushed_at``, so a repo
 is only re-measured after it receives new commits.
@@ -22,8 +22,7 @@ A full cold walk costs minutes, far more than a serverless request allows, so
 every walk carries a :class:`Deadline`. Cached repos are always free; uncached
 ones are measured newest-first until the deadline expires, after which the rest
 resolve from cache or not at all. The result reports how much it covered, and
-callers that need a trustworthy language mix fall back to whole-repo bytes when
-coverage is too thin.
+callers can expose that coverage without ever substituting whole-repo bytes.
 """
 
 import asyncio
@@ -48,7 +47,7 @@ from services.client import (
 )
 from services.language_map import detect_language, filter_languages, is_vendored
 
-CACHE_VERSION = "v1"
+CACHE_VERSION = "v2"
 
 _LAST_PAGE_RE = re.compile(r'<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"')
 
@@ -347,26 +346,6 @@ async def _fetch_contributor_totals(
     }
 
 
-async def _fetch_repo_language_bytes(
-    client: httpx.AsyncClient, owner: str, repo: str, token: str
-) -> Dict[str, int]:
-    url = f"{GITHUB_API}/repos/{owner}/{repo}/languages"
-    try:
-        response = await client.get(url, headers=github_headers(token))
-    except Exception:
-        return {}
-
-    if response.status_code != 200:
-        return {}
-
-    try:
-        payload = response.json()
-    except ValueError:
-        return {}
-
-    return payload if isinstance(payload, dict) else {}
-
-
 def _accumulate_files(
     files: List[Dict[str, Any]],
     additions_by_language: Dict[str, int],
@@ -605,8 +584,10 @@ async def analyze_repo_contribution(
     files_changed = measured_files
 
     if not additions_by_language:
-        # No usable diffs: spread the user's known additions over the repo's
-        # language byte breakdown, which at least keeps forks proportional.
+        # No usable diffs. Contributor stats can still supply the user's exact
+        # totals, but the whole-repo language endpoint cannot say which part
+        # they wrote. Keep the language list empty instead of attributing
+        # upstream or co-contributor code to this user.
         if not stats or stats["user_additions"] <= 0:
             # Missing stats can mean the deadline cut them off rather than the
             # user genuinely having nothing here, so only claim this repo as
@@ -616,17 +597,9 @@ async def analyze_repo_contribution(
             else:
                 progress.resolved += 1
             return None
-
-        language_bytes = await _fetch_repo_language_bytes(client, owner, name, token)
-        if not language_bytes:
-            progress.resolved += 1
-            return None
-
-        additions_by_language = _scale(language_bytes, stats["user_additions"])
-        files_by_language = {}
         additions = stats["user_additions"]
         deletions = stats["user_deletions"]
-        method = "estimated"
+        method = "contributor_stats"
 
     elif truncated and stats and stats["user_additions"] > measured_additions:
         # The sample gives the language mix; the stats give the true volume.
@@ -699,9 +672,6 @@ async def get_user_contributions(
             and not repo.get("archived")
             and (include_forks or not repo.get("fork"))
         ]
-        skipped = max(0, len(candidates) - settings.max_repos)
-        candidates = candidates[: settings.max_repos]
-
         budget = AttributionBudget(settings.max_commit_details)
         semaphore = asyncio.Semaphore(settings.concurrency)
         guard = RateLimitGuard(settings.rate_limit_floor)
@@ -765,7 +735,7 @@ async def get_user_contributions(
         files_changed=sum(item.files_changed for item in contributions),
         repos_analyzed=len(contributions),
         forks_analyzed=sum(1 for item in contributions if item.is_fork),
-        repos_skipped=skipped,
+        repos_skipped=0,
         commits_sampled=settings.max_commit_details - budget.remaining,
         truncated=any(item.truncated for item in contributions),
         repos_considered=considered,

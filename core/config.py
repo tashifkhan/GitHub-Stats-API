@@ -27,14 +27,13 @@ class AttributionSettings:
     completion inside a request. Instead every walk is bounded by a wall-clock
     deadline and each repo's result is cached in Redis keyed by its
     ``pushed_at``. A request measures whatever fits in its deadline, caches it,
-    and falls back to whole-repo language bytes until enough repos are warm;
-    successive requests widen the cache until the attributed answer takes over.
+    and returns the own-commit portion available so far; successive requests
+    widen the cache until the attributed answer is complete.
 
     Set ``REDIS_URL`` for that warming to persist -- without it every request
-    starts cold and the attributed path never reaches its coverage threshold.
+    starts cold and can only return the work completed inside its own deadline.
     """
 
-    max_repos = int(os.getenv("ATTRIBUTION_MAX_REPOS", "60"))
     max_commits_per_repo = int(os.getenv("ATTRIBUTION_MAX_COMMITS_PER_REPO", "200"))
     max_commit_details = int(os.getenv("ATTRIBUTION_MAX_COMMIT_DETAILS", "600"))
     concurrency = int(os.getenv("ATTRIBUTION_CONCURRENCY", "10"))
@@ -72,11 +71,5 @@ class AttributionSettings:
     # hour. A cold walk costs hundreds of requests, and without a floor it will
     # drain the 5000/hour budget and take every other endpoint down with it.
     rate_limit_floor = int(os.getenv("ATTRIBUTION_RATE_LIMIT_FLOOR", "500"))
-    # Fraction of candidate repos that must be measured before the attributed
-    # language mix is trustworthy enough to serve. Below this a partial sample
-    # would misrepresent the user, so the legacy whole-repo split is used.
-    min_coverage = float(os.getenv("ATTRIBUTION_MIN_COVERAGE", "0.7"))
-
-
 cache_rate_limit_settings = CacheRateLimitSettings()
 attribution_settings = AttributionSettings()

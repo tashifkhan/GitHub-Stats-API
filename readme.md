@@ -161,16 +161,16 @@ may run. So:
 - Every walk is bounded by a wall-clock deadline and caches each repo it
   measures, keyed by that repo's `pushed_at`. Repos are only re-measured after
   they receive new commits.
-- Until enough repos are cached to be representative (`ATTRIBUTION_MIN_COVERAGE`,
-  default 70%), `/{username}/languages` and `/{username}/stats` serve the
-  whole-repo language byte split instead. Responses say which is which via
-  `coverage` and `partial` on the breakdown endpoint.
+- `/{username}/languages` and `/{username}/stats` never substitute
+  whole-repository language bytes in attributed mode. A cold cache can return a
+  partial or empty own-commit split; `coverage` and `partial` on the breakdown
+  endpoint show how much has been measured.
 - `/{username}/repos` reads the attribution cache but never walks diffs itself,
   because it is already the heaviest endpoint in the API.
 
-**A cache is required.** Without one nothing accumulates between requests and
-the attributed split never reaches its coverage threshold, so the API quietly
-serves whole-repo bytes forever. Configure either:
+**A cache is strongly recommended.** Without one nothing accumulates between
+requests, so every request can only report the own-commit data it measured
+within that request's deadline. Configure either:
 
 - `REDIS_URL` — a `redis://` / `rediss://` URL, used in preference when set; or
 - `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` — what Vercel's Upstash
@@ -196,8 +196,7 @@ for i in $(seq 6); do curl -s https://your-api/tashifkhan/contributions/breakdow
 ```
 
 Tuning knobs (all optional, with defaults): `ATTRIBUTION_INLINE_DEADLINE` (3.5s
-budget inside a request), `ATTRIBUTION_BREAKDOWN_DEADLINE` (45s),
-`ATTRIBUTION_MIN_COVERAGE` (0.7), `ATTRIBUTION_MAX_REPOS` (60),
+budget inside a request), `ATTRIBUTION_BREAKDOWN_DEADLINE` (8s),
 `ATTRIBUTION_MAX_COMMITS_PER_REPO` (200), `ATTRIBUTION_MAX_COMMIT_DETAILS` (600),
 `ATTRIBUTION_RATE_LIMIT_FLOOR` (500 calls kept in reserve for other endpoints),
 `ATTRIBUTION_CACHE_TTL_SECONDS` (7 days).

@@ -34,11 +34,11 @@ analytics_router = APIRouter()
     - Vendored paths (`node_modules`, `dist`, lockfiles, minified bundles) are skipped
 
     Measuring commit diffs cannot finish inside one request, so the walk is
-    time-boxed and its per-repo results are cached. Until enough repos are
-    cached to be representative this falls back to whole-repository language
-    bytes, which is also what `attributed=false` returns outright. Warm the
-    cache with `scripts/warm_attribution.py` to get the attributed split
-    immediately, or hit `/{username}/contributions/breakdown` repeatedly.
+    time-boxed and its per-repo results are cached. A cold cache may therefore
+    produce a partial or empty own-commit split, but attributed mode never
+    substitutes whole-repository languages. Warm the cache with
+    `scripts/warm_attribution.py`, or hit
+    `/{username}/contributions/breakdown` repeatedly.
     """,
     response_description="List of top programming languages with usage percentages",
     responses={
@@ -107,8 +107,9 @@ async def get_user_language_stats(
     For each repository it reports the user's commit count, lines added and
     removed, files touched, their language mix, and their share of the repo's
     total additions. `method` is `commits` when measured from real commit diffs,
-    or `estimated` when the commit budget forced a sampled language mix scaled to
-    the user's true addition total.
+    `estimated` when the commit budget forced a sampled own-commit language mix,
+    or `contributor_stats` when exact user totals were available but commit diffs
+    were not, in which case no language mix is invented from the entire repo.
 
     Walking commit diffs is slow, so each call measures only what fits in its
     deadline and caches it. `coverage` is the fraction of eligible repos settled

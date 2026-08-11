@@ -33,7 +33,8 @@ class RepoContribution(BaseModel):
     contribution_percentage: Optional[float] = None
 
     # "commits" when measured from real commit diffs, "estimated" when the
-    # language mix was sampled or derived from the repo's byte breakdown.
+    # user's own commits were sampled, or "contributor_stats" when exact user
+    # totals were available but no honest per-language split could be derived.
     method: str = "commits"
 
     # True when a budget cap meant some of the user's commits went unmeasured.

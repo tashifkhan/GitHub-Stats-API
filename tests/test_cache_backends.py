@@ -4,7 +4,7 @@ Vercel's Upstash integration provisions REST credentials rather than a
 ``REDIS_URL``. Before this transport existed that combination left the app
 running with no cache at all -- and because per-repo attribution measurements
 stopped persisting between requests, the attributed language split could never
-reach its coverage threshold and silently stayed on whole-repo bytes.
+accumulate a complete own-commit result across requests.
 """
 
 import asyncio
