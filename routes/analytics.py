@@ -361,9 +361,9 @@ async def get_user_pinned(
     - README content (raw CDN first, Contents API fallback, decoded Markdown)
     - Whether the repo is a fork (`is_fork`)
 
-    By default this is the **lite** portfolio path (README + languages only) so
-    the response can finish inside a serverless time budget and warm Redis.
-    Pass `full=true` for contributors, release notes/assets, and commit counts.
+    By default this is the **lite** portfolio path (README + languages +
+    contributors) so the response can finish inside a serverless time budget
+    and warm Redis. Pass `full=true` for release notes/assets and commit counts.
 
     With `attributed=true` (the default) each repo also carries the user's own
     contribution, counting their commits alone: `user_commits`, `user_additions`,
@@ -437,9 +437,8 @@ async def get_user_repos(
     full: bool = Query(
         False,
         description=(
-            "Include contributors, releases, and commit counts. Default is the "
-            "lite path (README + languages) so the response fits a serverless "
-            "function budget and can warm the cache"
+            "Include releases and commit counts. Contributors are already in "
+            "the default lite path alongside README and languages"
         ),
     ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
