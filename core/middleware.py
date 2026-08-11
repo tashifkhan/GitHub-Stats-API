@@ -54,6 +54,12 @@ def _is_invalid_user(status_code: int, body: bytes) -> bool:
     except (UnicodeDecodeError, ValueError):
         return False
 
+    # Successful collection endpoints such as /repos and /pinned return a JSON
+    # array. Only error envelopes are objects, so a list can never describe an
+    # invalid user and must not be inspected with dict.get().
+    if not isinstance(payload, dict):
+        return False
+
     message = str(payload.get("message") or payload.get("detail") or "").lower()
     status = str(payload.get("status") or "").lower()
     return status == "error" and any(marker in message for marker in INVALID_USER_MARKERS)
