@@ -18,9 +18,11 @@ BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
 
 # Portfolio consumers need README + languages most. Contributors, releases, and
-# commit counts cost three extra GitHub round-trips each and were pushing the
-# whole /repos payload past Vercel's function timeout before Redis could warm.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v2"
+# commit counts cost three extra GitHub API round-trips each and were pushing
+# the whole /repos payload past Vercel's function timeout before Redis could
+# warm. README.md itself is fetched from GitHub's raw CDN first, preserving the
+# REST API quota for metadata that cannot be served there.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v5"
 
 
 def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:
@@ -275,9 +277,24 @@ async def fetch_repo_details(
 
     async def get_readme():
         nonlocal readme_content_markdown
-        readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
         try:
-            readme_resp = await client.get(readme_url, headers=github_headers(token))
+            raw_readme_url = (
+                f"https://raw.githubusercontent.com/"
+                f"{owner}/{repo_name}/HEAD/README.md"
+            )
+            raw_readme_resp = await client.get(raw_readme_url)
+            if raw_readme_resp.status_code == 200:
+                readme_content_markdown = raw_readme_resp.text.strip() or None
+                if readme_content_markdown:
+                    return
+
+            # The Contents API resolves alternate README names and casing. It
+            # is only a fallback so conventional README.md files cost no REST
+            # API quota.
+            readme_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/readme"
+            readme_resp = await client.get(
+                readme_url, headers=github_headers(token)
+            )
             if readme_resp.status_code == 200:
                 readme_content_markdown = _decode_readme_to_markdown(
                     readme_resp.json().get("content")
@@ -311,8 +328,9 @@ async def fetch_repo_details(
         nonlocal num_commits
         num_commits = await _get_commit_count(client, owner, repo_name, token)
 
-    # Lite path (default): README + languages only — enough for portfolio pages
-    # and ~2 GitHub calls per repo instead of 5.
+    # Lite path (default): README + languages only — enough for portfolio pages.
+    # A conventional README.md comes from the raw CDN, so this normally costs
+    # one GitHub REST API call per repo instead of five.
     tasks = [get_readme(), get_languages()]
     if full:
         tasks.extend([get_contributors(), get_releases(), get_commit_count()])

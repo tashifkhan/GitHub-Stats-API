@@ -358,7 +358,7 @@ async def get_user_pinned(
     - Programming languages used
     - GitHub topics / tags
     - Number of stars
-    - README content (decoded Markdown)
+    - README content (raw CDN first, Contents API fallback, decoded Markdown)
     - Whether the repo is a fork (`is_fork`)
 
     By default this is the **lite** portfolio path (README + languages only) so
