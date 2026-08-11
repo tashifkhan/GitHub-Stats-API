@@ -17,12 +17,15 @@ from services.client import github_headers, list_user_repositories
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
 
-# Portfolio consumers need README + languages most. Contributors, releases, and
-# commit counts cost three extra GitHub API round-trips each and were pushing
-# the whole /repos payload past Vercel's function timeout before Redis could
-# warm. README.md itself is fetched from GitHub's raw CDN first, preserving the
-# REST API quota for metadata that cannot be served there.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v5"
+# Portfolio consumers need README, languages, and contributors. Releases and
+# commit counts remain opt-in because those two extra GitHub API round-trips per
+# repository pushed the whole /repos payload past Vercel's function timeout.
+# README.md itself is fetched from GitHub's raw CDN first, preserving the REST
+# API quota for metadata that cannot be served there.
+#
+# v6 invalidates lite responses cached before contributors became part of the
+# default response.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v6"
 
 
 def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:
@@ -328,12 +331,13 @@ async def fetch_repo_details(
         nonlocal num_commits
         num_commits = await _get_commit_count(client, owner, repo_name, token)
 
-    # Lite path (default): README + languages only — enough for portfolio pages.
+    # Lite path (default): README + languages + contributors — everything the
+    # portfolio pages render without the expensive release/commit metadata.
     # A conventional README.md comes from the raw CDN, so this normally costs
-    # one GitHub REST API call per repo instead of five.
-    tasks = [get_readme(), get_languages()]
+    # two GitHub REST API calls per repo instead of five.
+    tasks = [get_readme(), get_languages(), get_contributors()]
     if full:
-        tasks.extend([get_contributors(), get_releases(), get_commit_count()])
+        tasks.extend([get_releases(), get_commit_count()])
 
     await asyncio.gather(*tasks)
 
@@ -375,9 +379,9 @@ async def get_repo_details(
         token: GitHub API token
         attributed: Fill the ``user_*`` fields from cached own-commit
             attribution. Reads the cache only, never walks commit diffs
-        full: When True, also fetch contributors, releases, and commit counts.
-            Default is the lite portfolio path (README + languages) so the
-            endpoint finishes inside a serverless function budget.
+        full: When True, also fetch releases and commit counts. Contributors
+            are included in the default portfolio path alongside README and
+            languages.
 
     Returns:
         List of repository details

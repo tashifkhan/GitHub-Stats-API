@@ -39,6 +39,24 @@ class _Client:
             return self.raw_response
         if url.endswith("/languages"):
             return _Response(200, body={"JavaScript": 100})
+        if "/contributors?" in url:
+            return _Response(
+                200,
+                body=[
+                    {
+                        "login": "codeblech",
+                        "avatar_url": "https://avatars.githubusercontent.com/u/1",
+                        "html_url": "https://github.com/codeblech",
+                        "contributions": 188,
+                    },
+                    {
+                        "login": "tashifkhan",
+                        "avatar_url": "https://avatars.githubusercontent.com/u/2",
+                        "html_url": "https://github.com/tashifkhan",
+                        "contributions": 17,
+                    },
+                ],
+            )
         if url.endswith("/readme"):
             markdown = "# Alternate README\n"
             content = base64.b64encode(markdown.encode()).decode()
@@ -64,3 +82,17 @@ class TestRawReadmeDefault:
         assert detail is not None
         assert detail.readme == "# Alternate README"
         assert any(url.endswith("/readme") for url in client.urls)
+
+    def test_default_response_includes_contributors(self):
+        client = _Client(_Response(200, text="# JPortal\n"))
+
+        detail = asyncio.run(fetch_repo_details(client, _repo(), "token"))
+
+        assert detail is not None
+        assert [contributor.login for contributor in detail.contributors] == [
+            "codeblech",
+            "tashifkhan",
+        ]
+        assert any("/contributors?" in url for url in client.urls)
+        assert not any("/releases?" in url for url in client.urls)
+        assert not any("/commits?" in url for url in client.urls)
