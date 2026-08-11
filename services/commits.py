@@ -8,7 +8,7 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from services.client import raise_for_github_status
+from services.client import list_user_repositories
 
 from models.analytics import LanguageData
 from models.commits import CommitDetail
@@ -93,13 +93,10 @@ async def get_all_commits(username: str, token: str) -> List[CommitDetail]:
         List of commit details sorted by timestamp (most recent first)
     """
     async with httpx.AsyncClient() as client:
-        # Get user's repositories
-        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
         try:
-            response = await client.get(repos_url, headers=github_headers(token))
-            raise_for_github_status(response, username)
-
-            repos = response.json()
+            repos, _ = await list_user_repositories(
+                client, username, token, sort="updated", repo_type="all"
+            )
             if not repos:
                 return []
 

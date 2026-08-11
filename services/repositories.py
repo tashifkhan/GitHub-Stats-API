@@ -12,7 +12,7 @@ from core.config import attribution_settings, cache_rate_limit_settings
 from models.attribution import RepoContribution
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from services.attribution import AttributionBudget, analyze_repo_contribution
-from services.client import github_headers, raise_for_github_status
+from services.client import github_headers, list_user_repositories
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -377,13 +377,10 @@ async def get_repo_details(
     deadline = time.monotonic() + attribution_settings.repo_details_deadline_seconds
 
     async with httpx.AsyncClient(timeout=12.0) as client:
-        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
         try:
-            response = await client.get(repos_url, headers=github_headers(token))
-            if response.status_code != 200:
-                raise_for_github_status(response, username)
-
-            repos = response.json()
+            repos, _ = await list_user_repositories(
+                client, username, token, sort="updated", repo_type="all"
+            )
             if not repos:
                 return []
 

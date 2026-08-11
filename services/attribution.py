@@ -43,7 +43,7 @@ from models.attribution import (
 from services.client import (
     GITHUB_API,
     github_headers,
-    raise_for_github_status,
+    list_user_repositories,
     rate_limit_remaining,
 )
 from services.language_map import detect_language, filter_languages, is_vendored
@@ -97,7 +97,9 @@ class RateLimitGuard:
         self._tripped = False
 
     def observe(self, response: httpx.Response) -> None:
-        remaining = rate_limit_remaining(response)
+        self.observe_remaining(rate_limit_remaining(response))
+
+    def observe_remaining(self, remaining: Optional[int]) -> None:
         if remaining is not None and remaining < self._floor:
             self._tripped = True
 
@@ -680,16 +682,14 @@ async def get_user_contributions(
     can decide whether the language mix is representative enough to serve.
     """
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-        repos_url = f"{GITHUB_API}/users/{username}/repos"
-        params = {"per_page": "100", "sort": "pushed", "type": "all"}
-        response = await client.get(
-            repos_url, params=params, headers=github_headers(token)
+        repos, remaining = await list_user_repositories(
+            client,
+            username,
+            token,
+            sort="pushed",
+            repo_type="all",
         )
-
-        raise_for_github_status(response, username)
-
-        repos = response.json()
-        if not isinstance(repos, list) or not repos:
+        if not repos:
             return ContributionLanguageStats(username=username)
 
         candidates = [
@@ -705,7 +705,7 @@ async def get_user_contributions(
         budget = AttributionBudget(settings.max_commit_details)
         semaphore = asyncio.Semaphore(settings.concurrency)
         guard = RateLimitGuard(settings.rate_limit_floor)
-        guard.observe(response)
+        guard.observe_remaining(remaining)
         deadline = Deadline(deadline_seconds, guard)
         repo_slots = asyncio.Semaphore(settings.repo_concurrency)
         progress = WalkProgress()
