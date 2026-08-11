@@ -81,7 +81,9 @@ additions. Also reports `coverage` and `partial` (see below).
 
 Returns repository-level data including:
 
-- Decoded README content as Markdown (`readme`)
+- Decoded README content as Markdown (`readme`). Conventional `README.md`
+  files come from GitHub's raw CDN; the rate-limited Contents API is used only
+  as a fallback for alternate README names and casing.
 - GitHub topics / tags (`topics`)
 - Latest releases (`releases`)
 - Release notes/body in Markdown (`releases[].body`)
