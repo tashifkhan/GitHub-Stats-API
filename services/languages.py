@@ -16,7 +16,7 @@ from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelea
 from models.stars import StarredList, StarsData
 from core.config import attribution_settings
 from services.attribution import get_user_contributions
-from services.client import raise_for_github_status
+from services.client import list_user_repositories
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -39,14 +39,9 @@ async def get_language_stats(
     username: str, token: str, excluded_languages: List[str]
 ) -> List[LanguageData]:
     async with httpx.AsyncClient() as client:
-        repos_response = await client.get(
-            f"https://api.github.com/users/{username}/repos",
-            headers={"Authorization": f"Bearer {token}"},
+        repos, _ = await list_user_repositories(
+            client, username, token, sort="updated", repo_type="all"
         )
-
-        raise_for_github_status(repos_response, username)
-
-        repos = repos_response.json()
 
         excluded_set = set(excluded_languages)
         language_totals: Dict[str, int] = {}

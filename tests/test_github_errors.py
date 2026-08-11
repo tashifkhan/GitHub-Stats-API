@@ -5,20 +5,56 @@ as proof the account does not exist -- blacklisting a real user and dropping
 them onto the stricter invalid-user rate limit for the rest of the TTL.
 """
 
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
 from services.client import (
     is_rate_limited,
+    list_user_repositories,
     raise_for_github_status,
     rate_limit_remaining,
 )
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, headers=None):
+    def __init__(self, status_code=200, headers=None, payload=None):
         self.status_code = status_code
         self.headers = headers or {}
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class TestListUserRepositories:
+    def test_follows_every_page_instead_of_stopping_at_100(self):
+        first_page = [{"name": f"repo-{index}"} for index in range(100)]
+        second_page = [{"name": "repo-100"}, {"name": "repo-101"}]
+
+        class FakeClient:
+            def __init__(self):
+                self.pages = []
+
+            async def get(self, _url, params=None, headers=None):
+                page = int(params["page"])
+                self.pages.append(page)
+                payload = first_page if page == 1 else second_page
+                remaining = "4000" if page == 1 else "3999"
+                return FakeResponse(
+                    headers={"x-ratelimit-remaining": remaining}, payload=payload
+                )
+
+        client = FakeClient()
+        repositories, remaining = asyncio.run(
+            list_user_repositories(client, "many-repos", "token")
+        )
+
+        assert len(repositories) == 102
+        assert repositories[-1]["name"] == "repo-101"
+        assert client.pages == [1, 2]
+        assert remaining == 3999
 
 
 class TestIsRateLimited:

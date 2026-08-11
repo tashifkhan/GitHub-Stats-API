@@ -8,7 +8,7 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from services.client import raise_for_github_status
+from services.client import list_user_repositories
 
 from models.analytics import LanguageData
 from models.commits import CommitDetail
@@ -60,13 +60,10 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
         StarsData with total stars and repository details
     """
     async with httpx.AsyncClient() as client:
-        # Get user's repositories
-        repos_url = f"{GITHUB_API}/users/{username}/repos?per_page=100&sort=updated"
         try:
-            response = await client.get(repos_url, headers=github_headers(token))
-            raise_for_github_status(response, username)
-
-            repos = response.json()
+            repos, _ = await list_user_repositories(
+                client, username, token, sort="updated", repo_type="all"
+            )
             if not repos:
                 return StarsData(total_stars=0, repositories=[])
 
