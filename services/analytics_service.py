@@ -50,7 +50,7 @@ class AnalyticsService:
     ) -> List[LanguageData]:
         if attributed:
             # Bounded so this endpoint cannot outlive the function timeout; it
-            # falls back to whole-repo bytes when the walk covers too little.
+            # returns only the own-commit portion measured or cached so far.
             return await get_attributed_language_stats(
                 username,
                 self.token,

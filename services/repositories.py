@@ -188,7 +188,7 @@ async def _attribute_repos(
                 semaphore,
                 cache_only=True,
             )
-            for repo in repos[: attribution_settings.max_repos]
+            for repo in repos
             if isinstance(repo, dict)
         ),
         return_exceptions=True,

@@ -14,7 +14,6 @@ from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
-from core.config import attribution_settings
 from services.attribution import get_user_contributions
 from services.client import list_user_repositories
 
@@ -100,46 +99,21 @@ async def get_attributed_language_stats(
     upstream project contributes just the patches they authored.
 
     Measuring every repo takes far longer than a request allows, so the walk is
-    bounded by ``deadline_seconds`` and falls back to whole-repo language bytes
-    whenever too few repos were covered for the mix to be honest. Each call
-    caches the repos it did measure, so coverage climbs on subsequent calls
-    until the attributed answer takes over for good.
+    bounded by ``deadline_seconds`` and may return a partial own-commit split.
+    It deliberately never falls back to whole-repository language bytes: doing
+    so would mix upstream code from forks and other contributors' code into a
+    result the caller explicitly requested to be attributed.
     """
-    # Both run together rather than one after the other: whether the walk
-    # covers enough to be usable is only known once it finishes, and running
-    # the fallback afterwards would add its latency on top of the deadline,
-    # which is exactly what pushed this endpoint past the gateway timeout.
-    stats, legacy = await asyncio.gather(
-        get_user_contributions(
-            username,
-            token,
-            excluded_languages=excluded_languages,
-            include_forks=include_forks,
-            include_repositories=False,
-            deadline_seconds=deadline_seconds,
-            cache_only=cache_only,
-        ),
-        get_language_stats(username, token, excluded_languages),
-        return_exceptions=True,
+    stats = await get_user_contributions(
+        username,
+        token,
+        excluded_languages=excluded_languages,
+        include_forks=include_forks,
+        include_repositories=False,
+        deadline_seconds=deadline_seconds,
+        cache_only=cache_only,
     )
-
-    usable = (
-        not isinstance(stats, BaseException)
-        and bool(stats.languages)
-        # Too thin a sample: a handful of repos would misrepresent the user
-        # worse than the unattributed split does.
-        and stats.coverage >= attribution_settings.min_coverage
-    )
-
-    if usable:
-        return [
-            LanguageData(name=language.name, percentage=language.percentage)
-            for language in stats.languages
-        ]
-
-    if isinstance(legacy, BaseException):
-        # Neither route produced an answer, so surface why. The walk's own
-        # error is the more specific of the two when it has one.
-        raise stats if isinstance(stats, BaseException) else legacy
-
-    return legacy
+    return [
+        LanguageData(name=language.name, percentage=language.percentage)
+        for language in stats.languages
+    ]

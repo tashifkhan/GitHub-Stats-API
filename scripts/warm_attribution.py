@@ -3,9 +3,8 @@
 
 Measuring a whole account's commit diffs takes minutes -- far longer than a
 request may run -- so the API only ever measures what fits inside a short
-deadline and serves whole-repo language bytes until enough repos are cached.
-This script does the slow part out of band, so the attributed answer is ready
-before anyone asks for it.
+deadline. This script does the slow part out of band, so the complete attributed
+answer is ready before anyone asks for it.
 
     python scripts/warm_attribution.py tashifkhan
     python scripts/warm_attribution.py tashifkhan someone-else --passes 6
@@ -89,7 +88,7 @@ async def main() -> int:
     if not cache.redis_enabled():
         print(
             "REDIS_URL is not set, so there is no cache to warm. The API would "
-            "keep serving whole-repo language bytes; set REDIS_URL and retry.",
+            "only measure a partial result per request; set REDIS_URL and retry.",
             file=sys.stderr,
         )
         return 1

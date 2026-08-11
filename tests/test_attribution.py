@@ -283,26 +283,26 @@ class TestFetchContributorTotals:
 
 
 class TestAnalyzeRepoContribution:
-    """End-to-end over a fork where the user wrote a small slice of the code."""
+    """End-to-end checks for tashifkhan's forked and shared repositories."""
 
     def _repo(self, **overrides):
         repo = {
             "name": "upstream-project",
-            "full_name": "me/upstream-project",
-            "owner": {"login": "me"},
+            "full_name": "tashifkhan/upstream-project",
+            "owner": {"login": "tashifkhan"},
             "fork": True,
             "pushed_at": "2026-01-01T00:00:00Z",
-            "html_url": "https://github.com/me/upstream-project",
+            "html_url": "https://github.com/tashifkhan/upstream-project",
         }
         repo.update(overrides)
         return repo
 
-    def _run(self, client, budget_size=100):
+    def _run(self, client, budget_size=100, **repo_overrides):
         return asyncio.run(
             attribution.analyze_repo_contribution(
                 client,
-                self._repo(),
-                "me",
+                self._repo(**repo_overrides),
+                "tashifkhan",
                 "t",
                 attribution.AttributionBudget(budget_size),
                 asyncio.Semaphore(2),
@@ -354,6 +354,146 @@ class TestAnalyzeRepoContribution:
         assert [(l.name, l.lines) for l in result.languages] == [("Rust", 50)]
         assert result.contribution_percentage == 0.05
 
+    def test_pennywise_fork_counts_only_tashifkhans_kotlin_patch(self, monkeypatch):
+        async def fake_shas(*_args, **_kwargs):
+            return ["tashif-pennywise-patch"]
+
+        async def fake_files(*_args, **_kwargs):
+            return [
+                {
+                    "filename": "app/src/main/java/dev/pennywise/Tracker.kt",
+                    "additions": 100,
+                    "deletions": 7,
+                },
+                {
+                    "filename": "app/src/main/java/dev/pennywise/Settings.kt",
+                    "additions": 15,
+                    "deletions": 2,
+                },
+            ]
+
+        async def fake_stats(*_args, **_kwargs):
+            return {
+                "user_additions": 115,
+                "user_deletions": 9,
+                "user_commits": 1,
+                # Upstream additions stay in the denominator only; they must
+                # never enter tashifkhan's language or line totals.
+                "repo_additions": 383333,
+            }
+
+        monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)
+        monkeypatch.setattr(attribution, "_fetch_commit_files", fake_files)
+        monkeypatch.setattr(attribution, "_fetch_contributor_totals", fake_stats)
+
+        result = self._run(
+            FakeClient({}),
+            name="pennywiseai-tracker",
+            full_name="tashifkhan/pennywiseai-tracker",
+        )
+
+        assert result is not None
+        assert result.is_fork is True
+        assert result.commits == 1
+        assert result.additions == 115
+        assert result.deletions == 9
+        assert result.files_changed == 2
+        assert result.method == "commits"
+        assert result.truncated is False
+        assert [(item.name, item.percentage, item.lines) for item in result.languages] == [
+            ("Kotlin", 100.0, 115)
+        ]
+        assert result.contribution_percentage == 0.03
+
+    def test_owned_repo_ignores_other_contributors(self, monkeypatch):
+        async def fake_shas(*_args, **_kwargs):
+            return ["tashif-only"]
+
+        async def fake_files(*_args, **_kwargs):
+            return [
+                {"filename": "services/mine.py", "additions": 30, "deletions": 4}
+            ]
+
+        async def fake_stats(*_args, **_kwargs):
+            # The repository contains 9,970 additions from other contributors.
+            return {
+                "user_additions": 30,
+                "user_deletions": 4,
+                "user_commits": 1,
+                "repo_additions": 10000,
+            }
+
+        monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)
+        monkeypatch.setattr(attribution, "_fetch_commit_files", fake_files)
+        monkeypatch.setattr(attribution, "_fetch_contributor_totals", fake_stats)
+
+        result = self._run(
+            FakeClient({}),
+            fork=False,
+            name="shared-project",
+            full_name="tashifkhan/shared-project",
+        )
+
+        assert result is not None
+        assert result.is_fork is False
+        assert result.commits == 1
+        assert result.additions == 30
+        assert result.languages[0].name == "Python"
+        assert result.languages[0].percentage == 100.0
+        assert result.contribution_percentage == 0.3
+
+    def test_agentic_browser_large_repo_uses_only_tashifkhans_sample(self, monkeypatch):
+        async def fake_count(*_args, **_kwargs):
+            return 247
+
+        async def fake_shas(*_args, **_kwargs):
+            # Filling the per-repo listing cap makes the analyzer fetch the
+            # real authored-commit count, matching agentic-browser's large-repo
+            # path while the global detail budget samples only ten commits.
+            return [f"tashif-{index}" for index in range(200)]
+
+        async def fake_files(*_args, **_kwargs):
+            return [
+                {"filename": "agent/browser.py", "additions": 8, "deletions": 2},
+                {"filename": "web/panel.ts", "additions": 2, "deletions": 1},
+            ]
+
+        async def fake_stats(*_args, **_kwargs):
+            return {
+                "user_additions": 205299,
+                "user_deletions": 77422,
+                "user_commits": 247,
+                # Includes code committed by the repository's other authors.
+                "repo_additions": 214366,
+            }
+
+        monkeypatch.setattr(attribution, "_count_user_commits", fake_count)
+        monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)
+        monkeypatch.setattr(attribution, "_fetch_commit_files", fake_files)
+        monkeypatch.setattr(attribution, "_fetch_contributor_totals", fake_stats)
+
+        result = self._run(
+            FakeClient({}),
+            budget_size=10,
+            fork=False,
+            name="agentic-browser",
+            full_name="tashifkhan/agentic-browser",
+        )
+
+        assert result is not None
+        assert result.full_name == "tashifkhan/agentic-browser"
+        assert result.commits == 247
+        assert result.additions == 205299
+        assert result.deletions == 77422
+        assert result.files_changed == 20
+        assert result.method == "estimated"
+        assert result.truncated is True
+        assert [(item.name, item.percentage) for item in result.languages] == [
+            ("Python", 80.0),
+            ("TypeScript", 20.0),
+        ]
+        assert result.contribution_percentage == 95.77
+
     def test_returns_none_when_user_has_no_commits(self, monkeypatch):
         async def fake_count(*_args, **_kwargs):
             return 0
@@ -392,7 +532,7 @@ class TestAnalyzeRepoContribution:
         assert result.additions == 5000
         assert result.languages[0].lines == 5000
 
-    def test_falls_back_to_language_bytes_without_diffs(self, monkeypatch):
+    def test_never_uses_whole_repo_languages_without_diffs(self, monkeypatch):
         async def fake_count(*_args, **_kwargs):
             return 3
 
@@ -410,23 +550,17 @@ class TestAnalyzeRepoContribution:
                 "repo_additions": 800,
             }
 
-        async def fake_bytes(*_args, **_kwargs):
-            return {"Go": 3000, "Shell": 1000}
-
         monkeypatch.setattr(attribution, "_count_user_commits", fake_count)
         monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)
         monkeypatch.setattr(attribution, "_fetch_commit_files", fake_files)
         monkeypatch.setattr(attribution, "_fetch_contributor_totals", fake_stats)
-        monkeypatch.setattr(attribution, "_fetch_repo_language_bytes", fake_bytes)
 
         result = self._run(FakeClient({}))
 
-        assert result.method == "estimated"
+        assert result.method == "contributor_stats"
         assert result.additions == 200
-        assert [(l.name, l.lines) for l in result.languages] == [
-            ("Go", 150),
-            ("Shell", 50),
-        ]
+        assert result.deletions == 20
+        assert result.languages == []
         assert result.contribution_percentage == 25.0
 
 
