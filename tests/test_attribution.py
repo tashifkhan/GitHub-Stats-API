@@ -668,7 +668,7 @@ class TestAnalyzeRepoContributionLimits:
             }
 
         async def fake_set(key, value, ttl):
-            if not key.endswith(":coauthors"):
+            if not key.startswith("gh:authors:"):
                 stored.append(key)
 
         monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)

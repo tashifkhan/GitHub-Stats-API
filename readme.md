@@ -178,6 +178,13 @@ may run. So:
 - `/{username}/repos` reads the attribution cache but never walks diffs itself,
   because it is already the heaviest endpoint in the API.
 
+The repo response's `contributors` list also includes co-authors. It returns the
+top 10 accounts by authored plus co-authored commits, with each commit counted
+once per account. `contributors_complete` is false while the shared authorship
+scan is unfinished or unavailable. During that time, the list uses REST counts
+plus known co-authored credits, and the response is not cached. Later requests
+resume the scan from Redis. GitHub accounts without a resolved login are omitted.
+
 **A cache is strongly recommended.** Without one nothing accumulates between
 requests, so every request can only report the own-commit data it measured
 within that request's deadline. Configure either:

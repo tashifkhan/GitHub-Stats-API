@@ -48,7 +48,7 @@ from services.client import (
 )
 from services.language_map import detect_language, filter_languages, is_vendored
 
-CACHE_VERSION = "v3"
+CACHE_VERSION = "v4"
 
 _LAST_PAGE_RE = re.compile(r'<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"')
 
@@ -225,24 +225,37 @@ class CoauthoredCommits:
     complete: bool = False
 
 
-async def _list_coauthored_commits(
+@dataclass
+class AuthorshipScan:
+    contributors: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    coauthors: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    complete: bool = False
+
+
+def authorship_cache_key(repo: Dict[str, Any]) -> str:
+    owner = (repo.get("owner") or {}).get("login")
+    full_name = repo.get("full_name") or f"{owner}/{repo['name']}"
+    version = repo.get("pushed_at") or repo.get("updated_at") or "head"
+    return f"gh:authors:v1:{full_name}:{version}"
+
+
+async def scan_commit_authors(
     client: httpx.AsyncClient,
     owner: str,
     repo: str,
-    username: str,
     token: str,
     deadline: "Deadline",
     guard: Optional["RateLimitGuard"] = None,
     checkpoint_key: Optional[str] = None,
-) -> CoauthoredCommits:
-    """Find co-authors through GitHub's email-to-account resolution.
+) -> AuthorshipScan:
+    """Count every resolved author once per default-branch commit.
 
     REST's author filter and contributor stats cover primary authors only.
     GraphQL's authors connection also resolves Co-authored-by trailers, even
-    when their email is private. Scan the default branch used by REST and keep
-    only commits whose primary author is someone else.
+    when their email is private. One shared scan supplies both the contributor
+    list and the requested user's co-authored commit attribution.
     """
-    result = CoauthoredCommits()
+    result = AuthorshipScan()
     query = """
     query($owner: String!, $repo: String!, $after: String) {
       repository(owner: $owner, name: $repo) {
@@ -252,7 +265,7 @@ async def _list_coauthored_commits(
               oid additions deletions
               parents(first: 1) { totalCount }
               authors(first: 100) {
-                nodes { user { login } }
+                nodes { user { login avatarUrl url } }
                 pageInfo { hasNextPage }
               }
             }
@@ -268,14 +281,13 @@ async def _list_coauthored_commits(
         checkpoint = await cache.get_json(checkpoint_key)
         if isinstance(checkpoint, dict):
             try:
-                result = CoauthoredCommits(**checkpoint["result"])
+                result = AuthorshipScan(**checkpoint["result"])
                 cursor = checkpoint["cursor"]
                 seen = set(checkpoint["seen"])
                 if result.complete:
                     return result
             except (KeyError, TypeError):
-                result, cursor, seen = CoauthoredCommits(), None, set()
-    target = username.lower()
+                result, cursor, seen = AuthorshipScan(), None, set()
     while not deadline.expired:
         try:
             response = await client.post(
@@ -304,22 +316,39 @@ async def _list_coauthored_commits(
             # is truncated, retrying this page must not count its prefix twice.
             if any(node["authors"]["pageInfo"]["hasNextPage"] for node in history["nodes"]):
                 return result
+            page_shas: set[str] = set()
             for commit in history["nodes"]:
                 authors = commit["authors"]
-                logins = [
-                    str((actor.get("user") or {}).get("login") or "").lower()
-                    for actor in authors["nodes"]
-                ]
                 sha = commit["oid"]
-                if not logins or logins[0] == target or target not in logins[1:] or sha in seen:
+                if sha in seen or sha in page_shas:
                     continue
-                seen.add(sha)
-                result.count += 1
-                if len(result.shas) < settings.max_commits_per_repo:
-                    result.shas.append(sha)
-                if commit["parents"]["totalCount"] <= 1:
-                    result.additions += commit["additions"]
-                    result.deletions += commit["deletions"]
+                page_shas.add(sha)
+                primary_user = (authors["nodes"][0].get("user") or {}) if authors["nodes"] else {}
+                primary = (primary_user.get("login") or "").lower()
+                unique_authors = {
+                    actor["user"]["login"].lower(): actor["user"]
+                    for actor in authors["nodes"] if actor.get("user") and actor["user"].get("login")
+                }
+                for login, user in unique_authors.items():
+                    contributor = result.contributors.setdefault(login, {
+                        "login": user["login"],
+                        "avatar_url": user.get("avatarUrl") or "",
+                        "html_url": user.get("url") or f"https://github.com/{user['login']}",
+                        "contributions": 0,
+                    })
+                    contributor["contributions"] += 1
+                    if login == primary:
+                        continue
+                    seen.add(sha)
+                    coauthor = result.coauthors.setdefault(login, {
+                        "shas": [], "count": 0, "additions": 0, "deletions": 0,
+                    })
+                    coauthor["count"] += 1
+                    if len(coauthor["shas"]) < settings.max_commits_per_repo:
+                        coauthor["shas"].append(sha)
+                    if commit["parents"]["totalCount"] <= 1:
+                        coauthor["additions"] += commit["additions"]
+                        coauthor["deletions"] += commit["deletions"]
             page_info = history["pageInfo"]
             next_cursor = page_info["endCursor"]
             result.complete = not page_info["hasNextPage"]
@@ -335,6 +364,20 @@ async def _list_coauthored_commits(
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             break
     return result
+
+
+async def _list_coauthored_commits(
+    client: httpx.AsyncClient,
+    owner: str,
+    repo: str,
+    username: str,
+    token: str,
+    deadline: "Deadline",
+    guard: Optional["RateLimitGuard"] = None,
+    checkpoint_key: Optional[str] = None,
+) -> CoauthoredCommits:
+    scan = await scan_commit_authors(client, owner, repo, token, deadline, guard, checkpoint_key)
+    return CoauthoredCommits(**scan.coauthors.get(username.lower(), {}), complete=scan.complete)
 
 
 async def _fetch_commit_files(
@@ -654,7 +697,7 @@ async def analyze_repo_contribution(
 
     coauthored = await _list_coauthored_commits(
         client, owner, name, username, token, deadline, guard,
-        checkpoint_key=f"{cache_key}:coauthors",
+        checkpoint_key=authorship_cache_key(repo),
     )
     primary_commits = total_user_commits
     total_user_commits += coauthored.count

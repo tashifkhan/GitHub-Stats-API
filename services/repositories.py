@@ -11,7 +11,10 @@ from core import cache
 from core.config import attribution_settings, cache_rate_limit_settings
 from models.attribution import RepoContribution
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
-from services.attribution import AttributionBudget, analyze_repo_contribution
+from services.attribution import (
+    AttributionBudget, Deadline, RateLimitGuard, analyze_repo_contribution,
+    authorship_cache_key, scan_commit_authors,
+)
 from services.client import github_headers, list_user_repositories
 
 BASE_GITHUB_URL = "https://github.com"
@@ -23,8 +26,8 @@ GITHUB_API = "https://api.github.com"
 # README.md itself is fetched from GitHub's raw CDN first, preserving the REST
 # API quota for metadata that cannot be served there.
 #
-# v7 refreshes attributed responses to include co-authored commits.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v7"
+# v8 includes co-authors in contributors and reports discovery completeness.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v8"
 
 
 def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:
@@ -142,8 +145,22 @@ async def _get_commit_count(
 
 
 async def _fetch_contributors(
-    client: httpx.AsyncClient, owner: str, repo_name: str, token: str
-) -> List[Contributor]:
+    client: httpx.AsyncClient, repo: Dict, token: str, deadline: Deadline,
+    guard: Optional[RateLimitGuard] = None,
+) -> tuple[List[Contributor], bool]:
+    owner, repo_name = repo["owner"]["login"], repo["name"]
+    scan = await scan_commit_authors(
+        client, owner, repo_name, token, deadline,
+        guard=guard, checkpoint_key=authorship_cache_key(repo),
+    )
+    def ranked(entries: List[Contributor]) -> List[Contributor]:
+        return sorted(entries, key=lambda item: (-item.contributions, item.login.lower()))[:10]
+    if scan.complete:
+        return ranked([Contributor.model_validate(item) for item in scan.contributors.values()]), True
+
+    # Keep the existing REST counts while discovery continues. Only add known
+    # co-authored credits, since primary-author commits are already in REST.
+    contributors: Dict[str, Contributor] = {}
     contributors_url = (
         f"{GITHUB_API}/repos/{owner}/{repo_name}/contributors?per_page=10"
     )
@@ -151,19 +168,18 @@ async def _fetch_contributors(
         response = await client.get(contributors_url, headers=github_headers(token))
         if response.status_code == 200:
             contributors_data = response.json()
-            return [
-                Contributor(
-                    login=c["login"],
-                    avatar_url=c["avatar_url"],
-                    html_url=c["html_url"],
-                    contributions=c["contributions"],
-                )
-                for c in contributors_data
-                if isinstance(c, dict)
-            ]
-        return []
+            for item in contributors_data:
+                if isinstance(item, dict) and item.get("login"):
+                    contributor = Contributor.model_validate(item)
+                    contributors[contributor.login.lower()] = contributor
     except Exception:
-        return []
+        pass
+    for login, stats in scan.coauthors.items():
+        if login in contributors:
+            contributors[login].contributions += stats["count"]
+        else:
+            contributors[login] = Contributor.model_validate(scan.contributors[login])
+    return ranked(list(contributors.values())), False
 
 
 async def _attribute_repos(
@@ -265,7 +281,10 @@ async def fetch_repo_details(
     contribution: Optional[RepoContribution] = None,
     *,
     full: bool = False,
+    deadline: Optional[Deadline] = None,
+    guard: Optional[RateLimitGuard] = None,
 ) -> Optional[RepoDetail]:
+    deadline = deadline or Deadline(attribution_settings.repo_details_deadline_seconds)
     repo_name = repo["name"]
     owner = repo["owner"]["login"]
 
@@ -274,6 +293,7 @@ async def fetch_repo_details(
     # still leaves the card usable.
     languages_list = _primary_language_list(repo)
     contributors_list: List[Contributor] = []
+    contributors_complete = False
     releases_list: List[RepoRelease] = []
     num_commits = 0
 
@@ -319,8 +339,10 @@ async def fetch_repo_details(
             pass
 
     async def get_contributors():
-        nonlocal contributors_list
-        contributors_list = await _fetch_contributors(client, owner, repo_name, token)
+        nonlocal contributors_list, contributors_complete
+        contributors_list, contributors_complete = await _fetch_contributors(
+            client, repo, token, deadline, guard
+        )
 
     async def get_releases():
         nonlocal releases_list
@@ -332,8 +354,8 @@ async def fetch_repo_details(
 
     # Lite path (default): README + languages + contributors — everything the
     # portfolio pages render without the expensive release/commit metadata.
-    # A conventional README.md comes from the raw CDN, so this normally costs
-    # two GitHub REST API calls per repo instead of five.
+    # README.md normally comes from the raw CDN. Contributor discovery reuses
+    # cached authorship scans and resumes unfinished scans within the deadline.
     tasks = [get_readme(), get_languages(), get_contributors()]
     if full:
         tasks.extend([get_releases(), get_commit_count()])
@@ -350,6 +372,7 @@ async def fetch_repo_details(
         stars=repo.get("stargazers_count", 0) or 0,
         readme=readme_content_markdown,
         contributors=contributors_list,
+        contributors_complete=contributors_complete,
         releases=releases_list,
         is_fork=bool(repo.get("fork")),
         user_commits=contribution.commits if contribution else 0,
@@ -399,11 +422,13 @@ async def get_repo_details(
 
     async with httpx.AsyncClient(timeout=12.0) as client:
         try:
-            repos, _ = await list_user_repositories(
+            repos, remaining = await list_user_repositories(
                 client, username, token, sort="updated", repo_type="all"
             )
             if not repos:
                 return []
+            guard = RateLimitGuard(attribution_settings.rate_limit_floor)
+            guard.observe_remaining(remaining)
 
             contributions: Dict[str, RepoContribution] = {}
             if attributed:
@@ -426,6 +451,8 @@ async def get_repo_details(
                         token,
                         contribution,
                         full=full,
+                        deadline=Deadline(max(0.0, deadline - time.monotonic()), guard),
+                        guard=guard,
                     )
 
             repo_details = await asyncio.gather(
@@ -438,9 +465,10 @@ async def get_repo_details(
                 if detail is not None and not isinstance(detail, Exception)
             ]
 
-            # Only cache when at least one README landed — a pure-skeleton
-            # timeout would otherwise poison the cache for the whole TTL.
-            if any(detail.readme for detail in valid_repo_details):
+            # Unfinished contributor scans must keep progressing on later calls.
+            if any(detail.readme for detail in valid_repo_details) and all(
+                detail.contributors_complete for detail in valid_repo_details
+            ):
                 await cache.set_json(
                     cache_key,
                     {

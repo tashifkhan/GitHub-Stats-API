@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 from typing import Any, Dict, List, Optional
 
 from models.analytics import GitHubStatsResponse, LanguageData
@@ -426,6 +426,7 @@ async def get_user_pinned(
     },
 )
 async def get_user_repos(
+    response: Response,
     username: str = Path(..., description="GitHub username"),
     attributed: bool = Query(
         True,
@@ -443,9 +444,12 @@ async def get_user_repos(
     ),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> List[RepoDetail]:
-    return await analytics_service.get_user_repos(
+    repos = await analytics_service.get_user_repos(
         username, attributed=attributed, full=full
     )
+    if any(not repo.contributors_complete for repo in repos):
+        response.headers["Cache-Control"] = "no-store"
+    return repos
 
 
 @analytics_router.get(
