@@ -33,6 +33,9 @@ class _Client:
         self.raw_response = raw_response
         self.urls: list[str] = []
 
+    async def post(self, url: str, **kwargs):
+        return _Response(503)
+
     async def get(self, url: str, **_kwargs):
         self.urls.append(url)
         if url.startswith("https://raw.githubusercontent.com/"):

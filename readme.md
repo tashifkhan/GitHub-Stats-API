@@ -151,10 +151,18 @@ Example:
 ## Own-commit attribution
 
 Language percentages and the per-repo `user_*` fields describe only the commits
-the requested user authored. A fork counts the patches they wrote rather than
-the upstream codebase, and in their own repos other contributors' commits are
-ignored. Vendored paths (`node_modules`, `dist`, lockfiles, generated and
+the requested user authored or co-authored. GitHub's resolved commit authors
+identify `Co-authored-by` trailers, including private account emails. Each commit
+counts once, with its full diff credited to each author. A fork counts their
+patches rather than the upstream codebase, and in their own repos other
+contributors' commits are ignored. Vendored paths (`node_modules`, `dist`, lockfiles, generated and
 minified files) are skipped so they cannot dominate the split.
+
+Co-author discovery scans the default branch under the same request deadline.
+If that scan fails or runs out of time, coverage stays partial. Redis saves its
+cursor so later requests can continue, but the API does not cache an incomplete
+repo measurement. Contributor-stat estimates include co-authored additions and
+deletions.
 
 This is measured by walking commit diffs, which costs hundreds of GitHub API
 calls and takes minutes for a large account — far longer than a single request
@@ -169,6 +177,13 @@ may run. So:
   endpoint show how much has been measured.
 - `/{username}/repos` reads the attribution cache but never walks diffs itself,
   because it is already the heaviest endpoint in the API.
+
+The repo response's `contributors` list also includes co-authors. It returns the
+top 10 accounts by authored plus co-authored commits, with each commit counted
+once per account. `contributors_complete` is false while the shared authorship
+scan is unfinished or unavailable. During that time, the list uses REST counts
+plus known co-authored credits, and the response is not cached. Later requests
+resume the scan from Redis. GitHub accounts without a resolved login are omitted.
 
 **A cache is strongly recommended.** Without one nothing accumulates between
 requests, so every request can only report the own-commit data it measured
