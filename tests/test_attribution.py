@@ -170,6 +170,9 @@ class FakeClient:
                 return response
         return FakeResponse(status_code=404)
 
+    async def post(self, url, **kwargs):
+        return FakeResponse(payload={"data": {"repository": {"defaultBranchRef": None}}})
+
 
 class TestCountUserCommits:
     def test_reads_last_page_from_link_header(self):
@@ -665,7 +668,8 @@ class TestAnalyzeRepoContributionLimits:
             }
 
         async def fake_set(key, value, ttl):
-            stored.append(key)
+            if not key.endswith(":coauthors"):
+                stored.append(key)
 
         monkeypatch.setattr(attribution, "_list_commit_shas", fake_shas)
         monkeypatch.setattr(attribution, "_fetch_commit_files", fake_files)
