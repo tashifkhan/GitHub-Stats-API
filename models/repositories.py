@@ -39,12 +39,14 @@ class RepoDetail(BaseModel):
     stars: int = 0
     readme: Optional[str]
     contributors: List[Contributor] = Field(default_factory=list)
+    # False while the history scan is unfinished or the upstream API failed.
+    contributors_complete: bool = False
     releases: List[RepoRelease] = Field(default_factory=list)
 
     # Whether this repo is a fork of someone else's project.
     is_fork: bool = False
 
-    # Everything below describes only the requested user's own commits, so a
+    # Everything below describes the user's authored and co-authored commits, so a
     # fork reports the patches they wrote rather than the upstream codebase.
     # Populated when the endpoint is called with attribution enabled.
     user_commits: int = 0
