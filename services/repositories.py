@@ -23,9 +23,8 @@ GITHUB_API = "https://api.github.com"
 # README.md itself is fetched from GitHub's raw CDN first, preserving the REST
 # API quota for metadata that cannot be served there.
 #
-# v6 invalidates lite responses cached before contributors became part of the
-# default response.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v6"
+# v7 refreshes attributed responses to include co-authored commits.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v7"
 
 
 def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:

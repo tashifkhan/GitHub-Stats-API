@@ -3,7 +3,7 @@
 The plain ``/repos/{owner}/{repo}/languages`` endpoint reports the whole
 repository, which is misleading for forks (where the upstream project dwarfs the
 user's patches) and for any repo with more than one contributor. Everything here
-measures only the lines the requested user authored, by walking their commits and
+measures the lines the requested user authored or co-authored, by walking commits and
 resolving each changed file to a language.
 
 Cost control, in order of preference:
@@ -28,6 +28,7 @@ callers can expose that coverage without ever substituting whole-repo bytes.
 import asyncio
 import re
 import time
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -47,7 +48,7 @@ from services.client import (
 )
 from services.language_map import detect_language, filter_languages, is_vendored
 
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 _LAST_PAGE_RE = re.compile(r'<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"')
 
@@ -213,6 +214,127 @@ async def _list_commit_shas(
         page += 1
 
     return shas[:limit]
+
+
+@dataclass
+class CoauthoredCommits:
+    shas: List[str] = field(default_factory=list)
+    count: int = 0
+    additions: int = 0
+    deletions: int = 0
+    complete: bool = False
+
+
+async def _list_coauthored_commits(
+    client: httpx.AsyncClient,
+    owner: str,
+    repo: str,
+    username: str,
+    token: str,
+    deadline: "Deadline",
+    guard: Optional["RateLimitGuard"] = None,
+    checkpoint_key: Optional[str] = None,
+) -> CoauthoredCommits:
+    """Find co-authors through GitHub's email-to-account resolution.
+
+    REST's author filter and contributor stats cover primary authors only.
+    GraphQL's authors connection also resolves Co-authored-by trailers, even
+    when their email is private. Scan the default branch used by REST and keep
+    only commits whose primary author is someone else.
+    """
+    result = CoauthoredCommits()
+    query = """
+    query($owner: String!, $repo: String!, $after: String) {
+      repository(owner: $owner, name: $repo) {
+        defaultBranchRef { target { ... on Commit {
+          history(first: 100, after: $after) {
+            nodes {
+              oid additions deletions
+              parents(first: 1) { totalCount }
+              authors(first: 100) {
+                nodes { user { login } }
+                pageInfo { hasNextPage }
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        } } }
+      }
+    }
+    """
+    cursor = None
+    seen: set[str] = set()
+    if checkpoint_key:
+        checkpoint = await cache.get_json(checkpoint_key)
+        if isinstance(checkpoint, dict):
+            try:
+                result = CoauthoredCommits(**checkpoint["result"])
+                cursor = checkpoint["cursor"]
+                seen = set(checkpoint["seen"])
+                if result.complete:
+                    return result
+            except (KeyError, TypeError):
+                result, cursor, seen = CoauthoredCommits(), None, set()
+    target = username.lower()
+    while not deadline.expired:
+        try:
+            response = await client.post(
+                f"{GITHUB_API}/graphql",
+                headers=github_headers(token),
+                json={"query": query, "variables": {
+                    "owner": owner, "repo": repo, "after": cursor,
+                }},
+            )
+            if guard is not None:
+                guard.observe(response)
+            if response.status_code != 200:
+                break
+            payload = response.json()
+            if payload.get("errors"):
+                break
+            repository = (payload.get("data") or {}).get("repository")
+            if not isinstance(repository, dict):
+                break
+            branch = repository.get("defaultBranchRef")
+            if branch is None:
+                result.complete = True  # Empty repository.
+                break
+            history = branch["target"]["history"]
+            # Validate the whole page before mutating totals. If an author list
+            # is truncated, retrying this page must not count its prefix twice.
+            if any(node["authors"]["pageInfo"]["hasNextPage"] for node in history["nodes"]):
+                return result
+            for commit in history["nodes"]:
+                authors = commit["authors"]
+                logins = [
+                    str((actor.get("user") or {}).get("login") or "").lower()
+                    for actor in authors["nodes"]
+                ]
+                sha = commit["oid"]
+                if not logins or logins[0] == target or target not in logins[1:] or sha in seen:
+                    continue
+                seen.add(sha)
+                result.count += 1
+                if len(result.shas) < settings.max_commits_per_repo:
+                    result.shas.append(sha)
+                if commit["parents"]["totalCount"] <= 1:
+                    result.additions += commit["additions"]
+                    result.deletions += commit["deletions"]
+            page_info = history["pageInfo"]
+            next_cursor = page_info["endCursor"]
+            result.complete = not page_info["hasNextPage"]
+            if not result.complete and (not next_cursor or next_cursor == cursor):
+                break
+            cursor = next_cursor
+            if checkpoint_key:
+                await cache.set_json(checkpoint_key, {
+                    "result": asdict(result), "cursor": cursor, "seen": sorted(seen),
+                }, settings.cache_ttl_seconds)
+            if result.complete:
+                break
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            break
+    return result
 
 
 async def _fetch_commit_files(
@@ -530,11 +652,20 @@ async def analyze_repo_contribution(
             client, owner, name, username, token
         )
 
+    coauthored = await _list_coauthored_commits(
+        client, owner, name, username, token, deadline, guard,
+        checkpoint_key=f"{cache_key}:coauthors",
+    )
+    primary_commits = total_user_commits
+    total_user_commits += coauthored.count
+    # Each SHA gets one diff request, including when it appears in both lists.
+    shas = list(dict.fromkeys(coauthored.shas + shas))[:settings.max_commits_per_repo]
+
     if total_user_commits == 0:
         # A repo the user never committed to is settled, not deferred -- but an
         # empty listing also happens when the deadline cut the paging short, and
         # that repo still needs measuring on a later call.
-        if deadline.expired:
+        if deadline.expired or not coauthored.complete:
             progress.deferred += 1
         else:
             progress.resolved += 1
@@ -542,12 +673,13 @@ async def analyze_repo_contribution(
 
     granted = await budget.take(len(shas))
     shas = shas[:granted]
-    truncated = granted < total_user_commits
+    truncated = granted < total_user_commits or not coauthored.complete
 
     additions_by_language: Dict[str, int] = {}
     deletions_by_language: Dict[str, int] = {}
     files_by_language: Dict[str, int] = {}
     measured_additions = measured_deletions = measured_files = 0
+    diffs_complete = True
 
     if shas:
         file_lists = await asyncio.gather(
@@ -559,6 +691,9 @@ async def analyze_repo_contribution(
             )
         )
         for files in file_lists:
+            if files is None:
+                diffs_complete = False
+                truncated = True
             if not files:
                 continue
             commit_additions, commit_deletions, commit_files = _accumulate_files(
@@ -572,11 +707,16 @@ async def analyze_repo_contribution(
         client, owner, name, username, token, deadline
     )
 
-    contribution_percentage: Optional[float] = None
-    if stats and stats["repo_additions"] > 0:
-        contribution_percentage = round(
-            (stats["user_additions"] / stats["repo_additions"]) * 100, 2
-        )
+    if stats:
+        stats = dict(stats)
+        stats["user_additions"] += coauthored.additions
+        stats["user_deletions"] += coauthored.deletions
+    elif primary_commits == 0 and coauthored.count:
+        stats = {
+            "user_additions": coauthored.additions,
+            "user_deletions": coauthored.deletions,
+            "repo_additions": 0,
+        }
 
     method = "commits"
     additions = measured_additions
@@ -588,18 +728,12 @@ async def analyze_repo_contribution(
         # totals, but the whole-repo language endpoint cannot say which part
         # they wrote. Keep the language list empty instead of attributing
         # upstream or co-contributor code to this user.
-        if not stats or stats["user_additions"] <= 0:
-            # Missing stats can mean the deadline cut them off rather than the
-            # user genuinely having nothing here, so only claim this repo as
-            # settled when there was budget left to ask properly.
-            if deadline.expired:
-                progress.deferred += 1
-            else:
-                progress.resolved += 1
-            return None
-        additions = stats["user_additions"]
-        deletions = stats["user_deletions"]
-        method = "contributor_stats"
+        if (not stats or stats["user_additions"] <= 0) and truncated:
+            diffs_complete = False
+        if stats and stats["user_additions"] > 0:
+            additions = stats["user_additions"]
+            deletions = stats["user_deletions"]
+            method = "contributor_stats"
 
     elif truncated and stats and stats["user_additions"] > measured_additions:
         # The sample gives the language mix; the stats give the true volume.
@@ -607,6 +741,11 @@ async def analyze_repo_contribution(
         additions = stats["user_additions"]
         deletions = stats["user_deletions"]
         method = "estimated"
+
+    contribution_percentage: Optional[float] = None
+    if stats and stats["repo_additions"] > 0:
+        numerator = additions if coauthored.count and not truncated else stats["user_additions"]
+        contribution_percentage = round((numerator / stats["repo_additions"]) * 100, 2)
 
     contribution = RepoContribution(
         repo=name,
@@ -624,10 +763,8 @@ async def analyze_repo_contribution(
         truncated=truncated,
     )
 
-    if deadline.expired:
-        # The deadline cut this measurement short, so it undercounts. Hand it
-        # back for this response but leave the cache empty, otherwise a
-        # truncated figure would be served for the whole TTL.
+    if deadline.expired or not coauthored.complete or not diffs_complete:
+        # Incomplete discovery or failed diffs must not persist for the TTL.
         progress.deferred += 1
         return contribution
 
@@ -705,7 +842,7 @@ async def get_user_contributions(
     contributions = [
         result
         for result in results
-        if isinstance(result, RepoContribution) and result.additions > 0
+        if isinstance(result, RepoContribution)
     ]
 
     additions_by_language: Dict[str, int] = {}
