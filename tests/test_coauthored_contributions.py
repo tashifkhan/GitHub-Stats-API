@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from services import attribution
+from services.repositories import fetch_repo_details
 
 
 def commit(sha, authors, additions=20, deletions=4, parents=1):
@@ -14,7 +15,10 @@ def commit(sha, authors, additions=20, deletions=4, parents=1):
         "deletions": deletions,
         "parents": {"totalCount": parents},
         "authors": {
-            "nodes": [{"user": {"login": login} if login else None} for login in authors],
+            "nodes": [{"user": {
+                "login": login, "avatarUrl": f"https://avatars.example/{login}",
+                "url": f"https://github.com/{login}",
+            } if login else None} for login in authors],
             "pageInfo": {"hasNextPage": False},
         },
     }
@@ -129,6 +133,29 @@ def test_discovery_resumes_cached_cursor_after_deadline(monkeypatch):
     assert second.complete is cached.complete is True
 
 
+def test_shared_authorship_scan_stops_when_api_quota_runs_low():
+    calls = []
+    guard = attribution.RateLimitGuard(500)
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, headers={"x-ratelimit-remaining": "10"}, json=page([
+            commit("shared", ["alice", "bob"]),
+        ], "next"))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await attribution.scan_commit_authors(
+                client, "alice", "repo", "token", attribution.Deadline(None, guard), guard,
+            )
+
+    result = asyncio.run(run())
+    assert len(calls) == 1
+    assert guard.exhausted is True
+    assert result.complete is False
+    assert result.contributors["bob"]["contributions"] == 1
+
+
 @pytest.mark.parametrize("primary,budget,partial", [
     (True, 2, False), (False, 2, False), (False, 0, False), (False, 2, True),
 ])
@@ -140,7 +167,7 @@ def test_repo_totals_include_coauthors(monkeypatch, primary, budget, partial):
         return None
 
     async def set_cache(key, value, ttl):
-        if not key.endswith(":coauthors"):
+        if not key.startswith("gh:authors:"):
             stored.append(value)
 
     monkeypatch.setattr(attribution.cache, "get_json", get_cache)
@@ -197,3 +224,64 @@ def test_repo_totals_include_coauthors(monkeypatch, primary, budget, partial):
         assert result.languages == []
     assert bool(stored) is not partial
     assert (progress.resolved, progress.deferred) == ((0, 1) if partial else (1, 0))
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_repo_contributors_credit_every_author_and_reuse_scan(monkeypatch, partial):
+    checkpoints = {}
+    cursors = []
+
+    async def get_cache(key):
+        return checkpoints.get(key)
+
+    async def set_cache(key, value, ttl):
+        checkpoints[key] = value
+
+    monkeypatch.setattr(attribution.cache, "get_json", get_cache)
+    monkeypatch.setattr(attribution.cache, "set_json", set_cache)
+    repo = {"name": "repo", "owner": {"login": "Alice"}, "pushed_at": "today"}
+
+    def handler(request):
+        if request.url.path == "/graphql":
+            cursor = json.loads(request.content)["variables"]["after"]
+            cursors.append(cursor)
+            if cursor is None:
+                shared = commit("shared", ["Alice", "Bob", "BOB", "Alice", None, "Charlie"])
+                return httpx.Response(200, json=page([shared, shared], "next"))
+            if partial:
+                return httpx.Response(503)
+            return httpx.Response(200, json=page([
+                commit("alice", ["Alice"]), commit("bob", ["Bob", "Charlie"]),
+            ]))
+        if request.url.host == "raw.githubusercontent.com":
+            return httpx.Response(200, text="# Repo")
+        if request.url.path.endswith("/languages"):
+            return httpx.Response(200, json={"Python": 100})
+        if request.url.path.endswith("/contributors"):
+            return httpx.Response(200, json=[
+                {"login": "Alice", "avatar_url": "alice.png", "html_url": "https://github.com/Alice", "contributions": 12},
+                {"login": "Bob", "avatar_url": "bob.png", "html_url": "https://github.com/Bob", "contributions": 3},
+            ])
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            detail = await fetch_repo_details(client, repo, "token")
+            if not partial:
+                # A later per-user walk uses the same repo scan, even for a
+                # different account, without another GraphQL request.
+                user = await attribution._list_coauthored_commits(
+                    client, "Alice", "repo", "charlie", "token", attribution.Deadline(None),
+                    checkpoint_key=attribution.authorship_cache_key(repo),
+                )
+                assert user.count == 2
+            return detail
+
+    detail = asyncio.run(run())
+    assert cursors == [None, "next"]
+    assert detail.contributors_complete is not partial
+    assert {item.login.lower(): item.contributions for item in detail.contributors} == (
+        {"alice": 12, "bob": 4, "charlie": 1} if partial
+        else {"alice": 2, "bob": 2, "charlie": 2}
+    )
+    assert all(item.avatar_url and item.html_url for item in detail.contributors)

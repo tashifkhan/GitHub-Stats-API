@@ -148,7 +148,10 @@ class CacheRateLimitMiddleware(BaseHTTPMiddleware):
         invalid_user = _is_invalid_user(response.status_code, body)
         if invalid_user:
             await set_json(invalid_key, {"invalid": True}, settings.invalid_user_cache_ttl_seconds)
-        elif response.status_code == 200:
+        elif response.status_code == 200 and not any(
+            directive.strip().lower() in {"no-store", "no-cache", "private"}
+            for directive in response.headers.get("cache-control", "").split(",")
+        ):
             headers.setdefault("Cache-Control", f"public, max-age={settings.cache_ttl_seconds}")
             ttl = _ttl_from_cache_control(headers, settings.cache_ttl_seconds)
             await set_json(key, self._cached_response(response, body), ttl)
