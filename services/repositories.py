@@ -20,14 +20,19 @@ from services.client import github_headers, list_user_repositories
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
 
-# Portfolio consumers need README, languages, and contributors. Releases and
-# commit counts remain opt-in because those two extra GitHub API round-trips per
-# repository pushed the whole /repos payload past Vercel's function timeout.
+# Portfolio consumers need README, languages, contributors, and releases.
+# Commit counts remain opt-in because that extra REST round-trip per repository
+# pushed the whole /repos payload past Vercel's function timeout. Releases come
+# from one batched GraphQL query per 50 repos instead of a REST call per repo.
 # README.md itself is fetched from GitHub's raw CDN first, preserving the REST
 # API quota for metadata that cannot be served there.
 #
 # v8 includes co-authors in contributors and reports discovery completeness.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v8"
+# v9 adds releases to the default lite response.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v9"
+
+RELEASES_PER_REPO = 5
+RELEASE_BATCH_SIZE = 50
 
 
 def _repo_details_cache_key(username: str, full: bool, attributed: bool) -> str:
@@ -114,6 +119,118 @@ async def _fetch_releases(
         return releases
     except Exception:
         return []
+
+
+def _graphql_string(value: str) -> str:
+    """Quote a value for inline use in a GraphQL document."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _release_from_graphql(node: Dict, owner: str, repo_name: str) -> RepoRelease:
+    assets: List[ReleaseAsset] = []
+    for asset in (node.get("releaseAssets") or {}).get("nodes") or []:
+        if not isinstance(asset, dict) or not asset.get("downloadUrl"):
+            continue
+        assets.append(
+            ReleaseAsset(
+                name=asset.get("name") or "asset",
+                download_url=asset["downloadUrl"],
+                size=asset.get("size") or 0,
+                download_count=asset.get("downloadCount") or 0,
+                content_type=asset.get("contentType"),
+                updated_at=asset.get("updatedAt"),
+            )
+        )
+    return RepoRelease(
+        id=node.get("databaseId") or 0,
+        tag_name=node.get("tagName") or "untagged",
+        name=node.get("name"),
+        body=node.get("description"),
+        url=node.get("url") or f"{BASE_GITHUB_URL}/{owner}/{repo_name}/releases",
+        draft=bool(node.get("isDraft")),
+        prerelease=bool(node.get("isPrerelease")),
+        created_at=node.get("createdAt"),
+        published_at=node.get("publishedAt"),
+        assets=assets,
+    )
+
+
+async def _fetch_releases_batch(
+    client: httpx.AsyncClient, repos: List[Dict], token: str
+) -> Dict[str, List[RepoRelease]]:
+    """Releases for many repos via aliased GraphQL lookups, keyed by ``owner/name``.
+
+    One request per ``RELEASE_BATCH_SIZE`` repos keeps releases in the lite
+    path without the per-repo REST round-trip that blew the function timeout.
+    A failed batch leaves its repos out of the map; callers treat a missing
+    key as "unknown", not "no releases".
+    """
+    targets = [
+        (repo["owner"]["login"], repo["name"])
+        for repo in repos
+        if isinstance(repo, dict) and repo.get("name") and repo.get("owner")
+    ]
+    if not token or not targets:
+        return {}
+
+    release_fields = f"""
+        releases(first: {RELEASES_PER_REPO}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{
+            nodes {{
+                databaseId tagName name description url isDraft isPrerelease
+                createdAt publishedAt
+                releaseAssets(first: 20) {{
+                    nodes {{ name downloadUrl size downloadCount contentType updatedAt }}
+                }}
+            }}
+        }}
+    """
+
+    async def run_batch(batch: List[tuple]) -> Dict[str, List[RepoRelease]]:
+        aliases = "\n".join(
+            f"r{i}: repository(owner: {_graphql_string(owner)}, name: {_graphql_string(name)}) {{ {release_fields} }}"
+            for i, (owner, name) in enumerate(batch)
+        )
+        try:
+            response = await client.post(
+                f"{GITHUB_API}/graphql",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": f"query {{ {aliases} }}"},
+            )
+            if response.status_code != 200:
+                return {}
+            data = (response.json() or {}).get("data") or {}
+        except Exception:
+            return {}
+
+        found: Dict[str, List[RepoRelease]] = {}
+        for i, (owner, name) in enumerate(batch):
+            repo_data = data.get(f"r{i}")
+            # null means GitHub could not resolve this repo; leave it unknown.
+            if not isinstance(repo_data, dict):
+                continue
+            nodes = (repo_data.get("releases") or {}).get("nodes") or []
+            found[f"{owner}/{name}".lower()] = [
+                _release_from_graphql(node, owner, name)
+                for node in nodes
+                if isinstance(node, dict)
+            ]
+        return found
+
+    batches = [
+        targets[i : i + RELEASE_BATCH_SIZE]
+        for i in range(0, len(targets), RELEASE_BATCH_SIZE)
+    ]
+    merged: Dict[str, List[RepoRelease]] = {}
+    for result in await asyncio.gather(*(run_batch(b) for b in batches)):
+        merged.update(result)
+    return merged
+
+
+def _releases_key(repo: Dict) -> str:
+    return f"{repo['owner']['login']}/{repo['name']}".lower()
 
 
 async def _get_commit_count(
@@ -283,7 +400,13 @@ async def fetch_repo_details(
     full: bool = False,
     deadline: Optional[Deadline] = None,
     guard: Optional[RateLimitGuard] = None,
+    releases: Optional[List[RepoRelease]] = None,
 ) -> Optional[RepoDetail]:
+    """Detail for one repo.
+
+    ``releases`` comes from the batched GraphQL lookup. When it is ``None`` (the
+    batch failed or missed this repo) a ``full`` request falls back to REST.
+    """
     deadline = deadline or Deadline(attribution_settings.repo_details_deadline_seconds)
     repo_name = repo["name"]
     owner = repo["owner"]["login"]
@@ -294,7 +417,7 @@ async def fetch_repo_details(
     languages_list = _primary_language_list(repo)
     contributors_list: List[Contributor] = []
     contributors_complete = False
-    releases_list: List[RepoRelease] = []
+    releases_list: List[RepoRelease] = list(releases or [])
     num_commits = 0
 
     async def get_readme():
@@ -352,13 +475,15 @@ async def fetch_repo_details(
         nonlocal num_commits
         num_commits = await _get_commit_count(client, owner, repo_name, token)
 
-    # Lite path (default): README + languages + contributors — everything the
-    # portfolio pages render without the expensive release/commit metadata.
-    # README.md normally comes from the raw CDN. Contributor discovery reuses
-    # cached authorship scans and resumes unfinished scans within the deadline.
+    # Lite path (default): README + languages + contributors, with releases
+    # handed in from the batched GraphQL query. README.md normally comes from
+    # the raw CDN. Contributor discovery reuses cached authorship scans and
+    # resumes unfinished scans within the deadline.
     tasks = [get_readme(), get_languages(), get_contributors()]
     if full:
-        tasks.extend([get_releases(), get_commit_count()])
+        tasks.append(get_commit_count())
+        if releases is None:
+            tasks.append(get_releases())
 
     await asyncio.gather(*tasks)
 
@@ -401,7 +526,7 @@ async def get_repo_details(
         token: GitHub API token
         attributed: Fill the ``user_*`` fields from cached own-commit
             attribution. Reads the cache only, never walks commit diffs
-        full: When True, also fetch releases and commit counts. Contributors
+        full: When True, also fetch commit counts. Releases and contributors
             are included in the default portfolio path alongside README and
             languages.
 
@@ -430,6 +555,12 @@ async def get_repo_details(
             guard = RateLimitGuard(attribution_settings.rate_limit_floor)
             guard.observe_remaining(remaining)
 
+            # One GraphQL pass for every repo's releases (~4s for 95 repos).
+            # It runs alongside the per-repo REST work; lite details pick up
+            # their releases after both finish.
+            releases_task = asyncio.create_task(
+                _fetch_releases_batch(client, repos, token)
+            )
             contributions: Dict[str, RepoContribution] = {}
             if attributed:
                 contributions = await _attribute_repos(client, repos, username, token)
@@ -445,6 +576,13 @@ async def get_repo_details(
                 async with slots:
                     if time.monotonic() >= deadline:
                         return _skeleton_repo_detail(repo, contribution)
+                    # A full request needs to know up front whether the batch
+                    # covered this repo, so it can fall back to REST.
+                    releases = (
+                        (await releases_task).get(_releases_key(repo))
+                        if full
+                        else []
+                    )
                     return await fetch_repo_details(
                         client,
                         repo,
@@ -453,6 +591,7 @@ async def get_repo_details(
                         full=full,
                         deadline=Deadline(max(0.0, deadline - time.monotonic()), guard),
                         guard=guard,
+                        releases=releases,
                     )
 
             repo_details = await asyncio.gather(
@@ -464,6 +603,21 @@ async def get_repo_details(
                 for detail in repo_details
                 if detail is not None and not isinstance(detail, Exception)
             ]
+
+            releases_by_repo = await releases_task
+            owner_by_name = {
+                repo["name"]: repo["owner"]["login"]
+                for repo in repos
+                if isinstance(repo, dict) and repo.get("owner")
+            }
+            for detail in valid_repo_details:
+                if detail.releases:
+                    continue
+                owner = owner_by_name.get(detail.title)
+                if owner:
+                    detail.releases = releases_by_repo.get(
+                        f"{owner}/{detail.title}".lower(), []
+                    )
 
             # Unfinished contributor scans must keep progressing on later calls.
             if any(detail.readme for detail in valid_repo_details) and all(

@@ -3,7 +3,7 @@
 import asyncio
 import base64
 
-from services.repositories import fetch_repo_details
+from services.repositories import _fetch_releases_batch, fetch_repo_details
 
 
 def _repo() -> dict:
@@ -99,3 +99,110 @@ class TestRawReadmeDefault:
         assert any("/contributors?" in url for url in client.urls)
         assert not any("/releases?" in url for url in client.urls)
         assert not any("/commits?" in url for url in client.urls)
+
+
+def _graphql_release(tag: str) -> dict:
+    return {
+        "databaseId": 7,
+        "tagName": tag,
+        "name": tag,
+        "description": "notes",
+        "url": f"https://github.com/tashifkhan/Paisa/releases/tag/{tag}",
+        "isDraft": False,
+        "isPrerelease": False,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "publishedAt": "2026-10-01T00:00:00Z",
+        "releaseAssets": {
+            "nodes": [
+                {
+                    "name": "paisa.apk",
+                    "downloadUrl": f"https://github.com/tashifkhan/Paisa/releases/download/{tag}/paisa.apk",
+                    "size": 10,
+                    "downloadCount": 3,
+                    "contentType": "application/vnd.android.package-archive",
+                    "updatedAt": "2026-10-01T00:00:00Z",
+                }
+            ]
+        },
+    }
+
+
+class _GraphQLClient:
+    def __init__(self, response: _Response):
+        self.response = response
+        self.queries: list[str] = []
+
+    async def post(self, _url: str, **kwargs):
+        self.queries.append(kwargs["json"]["query"])
+        return self.response
+
+
+class TestBatchedReleases:
+    def _repos(self, count: int) -> list[dict]:
+        return [
+            {"name": f"repo{i}", "owner": {"login": "tashifkhan"}} for i in range(count)
+        ]
+
+    def test_maps_releases_by_full_name_and_skips_unresolved(self):
+        client = _GraphQLClient(
+            _Response(
+                200,
+                body={
+                    "data": {
+                        "r0": {"releases": {"nodes": [_graphql_release("v1.2.0")]}},
+                        "r1": {"releases": {"nodes": []}},
+                        "r2": None,
+                    }
+                },
+            )
+        )
+
+        found = asyncio.run(_fetch_releases_batch(client, self._repos(3), "token"))
+
+        assert [r.tag_name for r in found["tashifkhan/repo0"]] == ["v1.2.0"]
+        assert found["tashifkhan/repo0"][0].assets[0].download_url.endswith("paisa.apk")
+        assert found["tashifkhan/repo1"] == []
+        assert "tashifkhan/repo2" not in found
+
+    def test_splits_large_repo_lists_into_batches(self):
+        client = _GraphQLClient(_Response(200, body={"data": {}}))
+
+        asyncio.run(_fetch_releases_batch(client, self._repos(120), "token"))
+
+        assert len(client.queries) == 3
+
+    def test_failed_batch_returns_unknown_not_empty(self):
+        client = _GraphQLClient(_Response(502, body=None))
+
+        found = asyncio.run(_fetch_releases_batch(client, self._repos(2), "token"))
+
+        assert found == {}
+
+    def test_lite_detail_uses_batched_releases_without_rest(self):
+        client = _Client(_Response(200, text="# Paisa\n"))
+        releases = asyncio.run(
+            _fetch_releases_batch(
+                _GraphQLClient(
+                    _Response(
+                        200,
+                        body={
+                            "data": {
+                                "r0": {
+                                    "releases": {"nodes": [_graphql_release("v1.0.0")]}
+                                }
+                            }
+                        },
+                    )
+                ),
+                [_repo()],
+                "token",
+            )
+        )["tashifkhan/jportal"]
+
+        detail = asyncio.run(
+            fetch_repo_details(client, _repo(), "token", releases=releases)
+        )
+
+        assert detail is not None
+        assert [r.tag_name for r in detail.releases] == ["v1.0.0"]
+        assert not any("/releases?" in url for url in client.urls)
