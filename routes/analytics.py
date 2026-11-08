@@ -362,8 +362,10 @@ async def get_user_pinned(
     - Whether the repo is a fork (`is_fork`)
 
     By default this is the **lite** portfolio path (README + languages +
-    contributors) so the response can finish inside a serverless time budget
-    and warm Redis. Pass `full=true` for release notes/assets and commit counts.
+    contributors + the latest five releases with notes and assets) so the
+    response can finish inside a serverless time budget and warm Redis.
+    Releases come from one batched GraphQL query. Pass `full=true` to add
+    commit counts.
 
     With `attributed=true` (the default) each repo also carries the user's own
     contribution, counting their commits alone: `user_commits`, `user_additions`,
@@ -438,7 +440,7 @@ async def get_user_repos(
     full: bool = Query(
         False,
         description=(
-            "Include releases and commit counts. Contributors are already in "
+            "Include commit counts. Releases and contributors are already in "
             "the default lite path alongside README and languages"
         ),
     ),
