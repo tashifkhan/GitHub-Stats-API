@@ -3,7 +3,11 @@
 import asyncio
 import base64
 
-from services.repositories import _fetch_releases_batch, fetch_repo_details
+from services.repositories import (
+    _fetch_releases_batch,
+    fetch_release_page,
+    fetch_repo_details,
+)
 
 
 def _repo() -> dict:
@@ -159,9 +163,11 @@ class TestBatchedReleases:
 
         found = asyncio.run(_fetch_releases_batch(client, self._repos(3), "token"))
 
-        assert [r.tag_name for r in found["tashifkhan/repo0"]] == ["v1.2.0"]
-        assert found["tashifkhan/repo0"][0].assets[0].download_url.endswith("paisa.apk")
-        assert found["tashifkhan/repo1"] == []
+        assert [r.tag_name for r in found["tashifkhan/repo0"].releases] == ["v1.2.0"]
+        assert found["tashifkhan/repo0"].releases[0].assets[0].download_url.endswith(
+            "paisa.apk"
+        )
+        assert found["tashifkhan/repo1"].releases == []
         assert "tashifkhan/repo2" not in found
 
     def test_splits_large_repo_lists_into_batches(self):
@@ -205,4 +211,103 @@ class TestBatchedReleases:
 
         assert detail is not None
         assert [r.tag_name for r in detail.releases] == ["v1.0.0"]
+        assert detail.releases_page is not None
+        assert detail.releases_page.has_more is False
         assert not any("/releases?" in url for url in client.urls)
+
+
+
+class _ReleasesClient:
+    """REST page plus the GraphQL totalCount lookup that runs beside it."""
+
+    def __init__(self, rows, *, link="", total=12, status=200):
+        self.rows = rows
+        self.link = link
+        self.total = total
+        self.status = status
+        self.urls: list[str] = []
+
+    async def get(self, url, **_kwargs):
+        self.urls.append(url)
+        response = _Response(self.status, body=self.rows)
+        response.headers = {"Link": self.link}
+        return response
+
+    async def post(self, _url, **_kwargs):
+        return _Response(
+            200, body={"data": {"r": {"releases": {"totalCount": self.total}}}}
+        )
+
+
+def _rest_release(i: int) -> dict:
+    return {"id": i, "tag_name": f"v{i}", "html_url": "u", "assets": []}
+
+
+class TestReleasePages:
+    def test_batch_reports_total_and_next_page(self):
+        client = _GraphQLClient(
+            _Response(
+                200,
+                body={
+                    "data": {
+                        "r0": {
+                            "releases": {
+                                "totalCount": 12,
+                                "nodes": [_graphql_release(f"v{i}") for i in range(10)],
+                            }
+                        },
+                        "r1": {
+                            "releases": {
+                                "totalCount": 2,
+                                "nodes": [_graphql_release("v2"), _graphql_release("v1")],
+                            }
+                        },
+                    }
+                },
+            )
+        )
+        repos = [
+            {"name": "Patchwork", "owner": {"login": "tashifkhan"}},
+            {"name": "small", "owner": {"login": "tashifkhan"}},
+        ]
+
+        found = asyncio.run(_fetch_releases_batch(client, repos, "token"))
+
+        big = found["tashifkhan/patchwork"].releases_page
+        assert (big.total_count, big.page, big.per_page, big.has_more) == (12, 1, 10, True)
+        assert big.next == "/tashifkhan/repos/Patchwork/releases?page=2&per_page=10"
+        small = found["tashifkhan/small"].releases_page
+        assert small.has_more is False and small.next is None
+
+    def test_page_follows_link_header_for_has_more(self):
+        client = _ReleasesClient(
+            [_rest_release(i) for i in range(10)],
+            link='<https://api.github.com/x?page=2>; rel="next"',
+        )
+
+        page = asyncio.run(fetch_release_page(client, "tashifkhan", "Patchwork", "t"))
+
+        assert page is not None
+        assert len(page.releases) == 10
+        assert page.releases_page.total_count == 12
+        assert page.releases_page.next == (
+            "/tashifkhan/repos/Patchwork/releases?page=2&per_page=10"
+        )
+        assert "per_page=10&page=1" in client.urls[0]
+
+    def test_last_page_has_no_next(self):
+        client = _ReleasesClient([_rest_release(i) for i in range(2)])
+
+        page = asyncio.run(
+            fetch_release_page(client, "tashifkhan", "Patchwork", "t", page=2)
+        )
+
+        assert page is not None
+        assert page.releases_page.page == 2
+        assert page.releases_page.has_more is False
+        assert page.releases_page.next is None
+
+    def test_missing_repo_returns_none(self):
+        client = _ReleasesClient(None, status=404)
+
+        assert asyncio.run(fetch_release_page(client, "tashifkhan", "nope", "t")) is None
