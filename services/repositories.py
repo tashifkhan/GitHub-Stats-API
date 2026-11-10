@@ -10,7 +10,14 @@ from fastapi import HTTPException
 from core import cache
 from core.config import attribution_settings, cache_rate_limit_settings
 from models.attribution import RepoContribution
-from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
+from models.repositories import (
+    Contributor,
+    ReleaseAsset,
+    ReleasePage,
+    RepoDetail,
+    RepoRelease,
+    RepoReleases,
+)
 from services.attribution import (
     AttributionBudget, Deadline, RateLimitGuard, analyze_repo_contribution,
     authorship_cache_key, scan_commit_authors,
@@ -29,9 +36,18 @@ GITHUB_API = "https://api.github.com"
 #
 # v8 includes co-authors in contributors and reports discovery completeness.
 # v9 adds releases to the default lite response.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v9"
+# v10 embeds the first page of releases with releases_page metadata; the rest
+# come from /{owner}/repos/{repo}/releases.
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v10"
+RELEASE_PAGE_CACHE_PREFIX = "repo_releases:v1"
 
-RELEASES_PER_REPO = 5
+# Releases embedded per repo in /repos, and the default page size of the
+# releases endpoint. Clients follow releases_page.next for older ones.
+RELEASES_PER_PAGE = 10
+# GitHub's largest page, for releases and for assets on each release.
+MAX_RELEASES_PER_PAGE = 100
+# A GraphQL query may touch at most 500k nodes:
+# 50 repos x 10 releases x 100 assets is 50k.
 RELEASE_BATCH_SIZE = 50
 
 
@@ -61,64 +77,178 @@ def _decode_readme_to_markdown(content_b64: Optional[str]) -> Optional[str]:
         return None
 
 
-async def _fetch_releases(
-    client: httpx.AsyncClient, owner: str, repo_name: str, token: str, limit: int = 5
-) -> List[RepoRelease]:
-    releases_url = f"{GITHUB_API}/repos/{owner}/{repo_name}/releases?per_page={limit}"
-    try:
-        response = await client.get(releases_url, headers=github_headers(token))
-        if response.status_code != 200:
-            return []
+def releases_next_path(owner: str, repo: str, page: int, per_page: int) -> str:
+    return f"/{owner}/repos/{repo}/releases?page={page}&per_page={per_page}"
 
-        releases_data = response.json()
-        if not isinstance(releases_data, list):
-            return []
 
-        releases: List[RepoRelease] = []
-        for rel in releases_data:
-            if not isinstance(rel, dict):
-                continue
+def _release_page_meta(
+    owner: str,
+    repo: str,
+    page: int,
+    per_page: int,
+    total_count: Optional[int],
+    has_more: Optional[bool] = None,
+) -> ReleasePage:
+    if has_more is None:
+        has_more = total_count is not None and page * per_page < total_count
+    return ReleasePage(
+        total_count=total_count,
+        page=page,
+        per_page=per_page,
+        has_more=has_more,
+        next=releases_next_path(owner, repo, page + 1, per_page) if has_more else None,
+    )
 
-            assets_data = rel.get("assets")
-            assets: List[ReleaseAsset] = []
-            if isinstance(assets_data, list):
-                for asset in assets_data:
-                    if not isinstance(asset, dict):
-                        continue
-                    download_url = asset.get("browser_download_url")
-                    if not isinstance(download_url, str) or not download_url:
-                        continue
 
-                    assets.append(
-                        ReleaseAsset(
-                            name=asset.get("name") or "asset",
-                            download_url=download_url,
-                            size=asset.get("size") or 0,
-                            download_count=asset.get("download_count") or 0,
-                            content_type=asset.get("content_type"),
-                            updated_at=asset.get("updated_at"),
-                        )
-                    )
+async def _release_total_count(
+    client: httpx.AsyncClient, owner: str, repo_name: str, token: str
+) -> Optional[int]:
+    """How many releases the repo has. REST cannot say without walking pages."""
+    if not token:
+        return None
+    query = (
+        f"query {{ r: repository(owner: {_graphql_string(owner)}, "
+        f"name: {_graphql_string(repo_name)}) {{ releases {{ totalCount }} }} }}"
+    )
+    data = await _graphql_query(client, token, query)
+    count = (((data or {}).get("r") or {}).get("releases") or {}).get("totalCount")
+    return count if isinstance(count, int) else None
 
-            releases.append(
-                RepoRelease(
-                    id=rel.get("id") or 0,
-                    tag_name=rel.get("tag_name") or "untagged",
-                    name=rel.get("name"),
-                    body=rel.get("body"),
-                    url=rel.get("html_url")
-                    or f"{BASE_GITHUB_URL}/{owner}/{repo_name}/releases",
-                    draft=bool(rel.get("draft")),
-                    prerelease=bool(rel.get("prerelease")),
-                    created_at=rel.get("created_at"),
-                    published_at=rel.get("published_at"),
-                    assets=assets,
-                )
+
+async def fetch_release_page(
+    client: httpx.AsyncClient,
+    owner: str,
+    repo_name: str,
+    token: str,
+    page: int = 1,
+    per_page: int = RELEASES_PER_PAGE,
+) -> Optional[RepoReleases]:
+    """One page of a repo's releases, newest first. None when the repo is missing.
+
+    The page itself comes from REST, whose page/per_page map straight onto the
+    API's. has_more trusts GitHub's Link header; total_count is one small
+    GraphQL lookup run alongside.
+    """
+    releases_url = (
+        f"{GITHUB_API}/repos/{owner}/{repo_name}/releases"
+        f"?per_page={per_page}&page={page}"
+    )
+    response, total_count = await asyncio.gather(
+        client.get(releases_url, headers=github_headers(token)),
+        _release_total_count(client, owner, repo_name, token),
+    )
+    if response.status_code == 404:
+        return None
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="GitHub releases request failed")
+    data = response.json()
+    rows = data if isinstance(data, list) else []
+    releases = [
+        _release_from_rest(rel, owner, repo_name) for rel in rows if isinstance(rel, dict)
+    ]
+    link = response.headers.get("Link") or ""
+    return RepoReleases(
+        owner=owner,
+        repo=repo_name,
+        releases=releases,
+        releases_page=_release_page_meta(
+            owner,
+            repo_name,
+            page,
+            per_page,
+            total_count,
+            has_more='rel="next"' in link,
+        ),
+    )
+
+
+async def get_release_page(
+    owner: str, repo_name: str, token: str, page: int, per_page: int
+) -> RepoReleases:
+    """Cached wrapper around fetch_release_page for the releases endpoint."""
+    cache_key = f"{RELEASE_PAGE_CACHE_PREFIX}:{owner.lower()}:{repo_name.lower()}:{page}:{per_page}"
+    cached = await cache.get_json(cache_key)
+    if cached:
+        try:
+            return RepoReleases.model_validate(cached)
+        except Exception:
+            pass
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        result = await fetch_release_page(client, owner, repo_name, token, page, per_page)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    await cache.set_json(
+        cache_key,
+        result.model_dump(mode="json"),
+        cache_rate_limit_settings.cache_ttl_seconds,
+    )
+    return result
+
+
+def _release_from_rest(rel: Dict, owner: str, repo_name: str) -> RepoRelease:
+    assets: List[ReleaseAsset] = []
+    for asset in rel.get("assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        download_url = asset.get("browser_download_url")
+        if not isinstance(download_url, str) or not download_url:
+            continue
+        assets.append(
+            ReleaseAsset(
+                name=asset.get("name") or "asset",
+                download_url=download_url,
+                size=asset.get("size") or 0,
+                download_count=asset.get("download_count") or 0,
+                content_type=asset.get("content_type"),
+                updated_at=asset.get("updated_at"),
             )
+        )
+    return RepoRelease(
+        id=rel.get("id") or 0,
+        tag_name=rel.get("tag_name") or "untagged",
+        name=rel.get("name"),
+        body=rel.get("body"),
+        url=rel.get("html_url") or f"{BASE_GITHUB_URL}/{owner}/{repo_name}/releases",
+        draft=bool(rel.get("draft")),
+        prerelease=bool(rel.get("prerelease")),
+        created_at=rel.get("created_at"),
+        published_at=rel.get("published_at"),
+        assets=assets,
+    )
 
-        return releases
+
+def _release_fields(first: int = RELEASES_PER_PAGE) -> str:
+    return f"""
+        releases(first: {first}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{
+            totalCount
+            nodes {{
+                databaseId tagName name description url isDraft isPrerelease
+                createdAt publishedAt
+                releaseAssets(first: {MAX_RELEASES_PER_PAGE}) {{
+                    nodes {{ name downloadUrl size downloadCount contentType updatedAt }}
+                }}
+            }}
+        }}
+    """
+
+
+async def _graphql_query(
+    client: httpx.AsyncClient, token: str, query: str
+) -> Optional[Dict]:
+    try:
+        response = await client.post(
+            f"{GITHUB_API}/graphql",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"query": query},
+        )
+        if response.status_code != 200:
+            return None
+        return (response.json() or {}).get("data") or {}
     except Exception:
-        return []
+        return None
 
 
 def _graphql_string(value: str) -> str:
@@ -157,13 +287,13 @@ def _release_from_graphql(node: Dict, owner: str, repo_name: str) -> RepoRelease
 
 async def _fetch_releases_batch(
     client: httpx.AsyncClient, repos: List[Dict], token: str
-) -> Dict[str, List[RepoRelease]]:
-    """Releases for many repos via aliased GraphQL lookups, keyed by ``owner/name``.
+) -> Dict[str, RepoReleases]:
+    """First page of releases for many repos via aliased GraphQL lookups.
 
-    One request per ``RELEASE_BATCH_SIZE`` repos keeps releases in the lite
-    path without the per-repo REST round-trip that blew the function timeout.
-    A failed batch leaves its repos out of the map; callers treat a missing
-    key as "unknown", not "no releases".
+    Keyed by ``owner/name``. One request per ``RELEASE_BATCH_SIZE`` repos keeps
+    releases in the lite path without the per-repo REST round-trip that blew
+    the function timeout. A failed batch leaves its repos out of the map;
+    callers treat a missing key as "unknown", not "no releases".
     """
     targets = [
         (repo["owner"]["login"], repo["name"])
@@ -173,57 +303,49 @@ async def _fetch_releases_batch(
     if not token or not targets:
         return {}
 
-    release_fields = f"""
-        releases(first: {RELEASES_PER_REPO}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{
-            nodes {{
-                databaseId tagName name description url isDraft isPrerelease
-                createdAt publishedAt
-                releaseAssets(first: 20) {{
-                    nodes {{ name downloadUrl size downloadCount contentType updatedAt }}
-                }}
-            }}
-        }}
-    """
+    release_fields = _release_fields()
 
-    async def run_batch(batch: List[tuple]) -> Dict[str, List[RepoRelease]]:
+    async def run_batch(batch: List[tuple]) -> Dict[str, RepoReleases]:
         aliases = "\n".join(
             f"r{i}: repository(owner: {_graphql_string(owner)}, name: {_graphql_string(name)}) {{ {release_fields} }}"
             for i, (owner, name) in enumerate(batch)
         )
-        try:
-            response = await client.post(
-                f"{GITHUB_API}/graphql",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                json={"query": f"query {{ {aliases} }}"},
-            )
-            if response.status_code != 200:
-                return {}
-            data = (response.json() or {}).get("data") or {}
-        except Exception:
+        data = await _graphql_query(client, token, f"query {{ {aliases} }}")
+        if data is None:
             return {}
 
-        found: Dict[str, List[RepoRelease]] = {}
+        found: Dict[str, RepoReleases] = {}
         for i, (owner, name) in enumerate(batch):
             repo_data = data.get(f"r{i}")
             # null means GitHub could not resolve this repo; leave it unknown.
             if not isinstance(repo_data, dict):
                 continue
-            nodes = (repo_data.get("releases") or {}).get("nodes") or []
-            found[f"{owner}/{name}".lower()] = [
+            connection = repo_data.get("releases") or {}
+            releases = [
                 _release_from_graphql(node, owner, name)
-                for node in nodes
+                for node in connection.get("nodes") or []
                 if isinstance(node, dict)
             ]
+            total = connection.get("totalCount")
+            found[f"{owner}/{name}".lower()] = RepoReleases(
+                owner=owner,
+                repo=name,
+                releases=releases,
+                releases_page=_release_page_meta(
+                    owner,
+                    name,
+                    1,
+                    RELEASES_PER_PAGE,
+                    total if isinstance(total, int) else None,
+                ),
+            )
         return found
 
     batches = [
         targets[i : i + RELEASE_BATCH_SIZE]
         for i in range(0, len(targets), RELEASE_BATCH_SIZE)
     ]
-    merged: Dict[str, List[RepoRelease]] = {}
+    merged: Dict[str, RepoReleases] = {}
     for result in await asyncio.gather(*(run_batch(b) for b in batches)):
         merged.update(result)
     return merged
@@ -400,7 +522,7 @@ async def fetch_repo_details(
     full: bool = False,
     deadline: Optional[Deadline] = None,
     guard: Optional[RateLimitGuard] = None,
-    releases: Optional[List[RepoRelease]] = None,
+    releases: Optional[RepoReleases] = None,
 ) -> Optional[RepoDetail]:
     """Detail for one repo.
 
@@ -417,7 +539,7 @@ async def fetch_repo_details(
     languages_list = _primary_language_list(repo)
     contributors_list: List[Contributor] = []
     contributors_complete = False
-    releases_list: List[RepoRelease] = list(releases or [])
+    release_page: Optional[RepoReleases] = releases
     num_commits = 0
 
     async def get_readme():
@@ -468,8 +590,11 @@ async def fetch_repo_details(
         )
 
     async def get_releases():
-        nonlocal releases_list
-        releases_list = await _fetch_releases(client, owner, repo_name, token)
+        nonlocal release_page
+        try:
+            release_page = await fetch_release_page(client, owner, repo_name, token)
+        except Exception:
+            release_page = None
 
     async def get_commit_count():
         nonlocal num_commits
@@ -498,7 +623,8 @@ async def fetch_repo_details(
         readme=readme_content_markdown,
         contributors=contributors_list,
         contributors_complete=contributors_complete,
-        releases=releases_list,
+        releases=release_page.releases if release_page else [],
+        releases_page=release_page.releases_page if release_page else None,
         is_fork=bool(repo.get("fork")),
         user_commits=contribution.commits if contribution else 0,
         user_additions=contribution.additions if contribution else 0,
@@ -581,7 +707,7 @@ async def get_repo_details(
                     releases = (
                         (await releases_task).get(_releases_key(repo))
                         if full
-                        else []
+                        else None
                     )
                     return await fetch_repo_details(
                         client,
@@ -611,13 +737,17 @@ async def get_repo_details(
                 if isinstance(repo, dict) and repo.get("owner")
             }
             for detail in valid_repo_details:
-                if detail.releases:
+                if detail.releases_page is not None:
                     continue
                 owner = owner_by_name.get(detail.title)
-                if owner:
-                    detail.releases = releases_by_repo.get(
-                        f"{owner}/{detail.title}".lower(), []
-                    )
+                page = (
+                    releases_by_repo.get(f"{owner}/{detail.title}".lower())
+                    if owner
+                    else None
+                )
+                if page:
+                    detail.releases = page.releases
+                    detail.releases_page = page.releases_page
 
             # Unfinished contributor scans must keep progressing on later calls.
             if any(detail.readme for detail in valid_repo_details) and all(

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from models.analytics import GitHubStatsResponse, LanguageData
 from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
-from models.repositories import RepoDetail
+from models.repositories import RepoDetail, RepoReleases
 from models.stars import StarsData
 from models.canonical import make_envelope
 from routes.dependencies import (
@@ -362,10 +362,17 @@ async def get_user_pinned(
     - Whether the repo is a fork (`is_fork`)
 
     By default this is the **lite** portfolio path (README + languages +
-    contributors + the latest five releases with notes and assets) so the
+    contributors + the first page of releases with notes and assets) so the
     response can finish inside a serverless time budget and warm Redis.
     Releases come from one batched GraphQL query. Pass `full=true` to add
     commit counts.
+
+    **Releases are paginated.** Each repo embeds its newest 10 releases in
+    `releases`, and `releases_page` says where that page sits:
+    `total_count`, `page`, `per_page`, `has_more` and `next`. When `has_more`
+    is true, request `next` (a path on this API, such as
+    `/{owner}/repos/{repo}/releases?page=2&per_page=10`) and keep following each
+    response's `releases_page.next` until it is null.
 
     With `attributed=true` (the default) each repo also carries the user's own
     contribution, counting their commits alone: `user_commits`, `user_additions`,
@@ -418,6 +425,13 @@ async def get_user_pinned(
                                     ],
                                 }
                             ],
+                            "releases_page": {
+                                "total_count": 12,
+                                "page": 1,
+                                "per_page": 10,
+                                "has_more": True,
+                                "next": "/user/repos/RepoName/releases?page=2&per_page=10",
+                            },
                         }
                     ]
                 }
@@ -452,6 +466,78 @@ async def get_user_repos(
     if any(not repo.contributors_complete for repo in repos):
         response.headers["Cache-Control"] = "no-store"
     return repos
+
+
+@analytics_router.get(
+    "/{owner}/repos/{repo}/releases",
+    tags=["Dashboard Details"],
+    summary="Get One Page of a Repository's Releases",
+    description="""
+    One page of a repository's releases, newest first, with notes (Markdown)
+    and asset download links.
+
+    `/{username}/repos` embeds only the first page of each repo's releases.
+    Use this endpoint for the rest: start from that repo's
+    `releases_page.next`, or ask for a page directly, then keep following
+    `releases_page.next` until it is null.
+
+    `releases_page` carries:
+
+    - `total_count`: every release the repo has (null if GitHub's count failed)
+    - `page`, `per_page`: the page you asked for
+    - `has_more`: whether a later page exists
+    - `next`: path of the next page on this API, or null on the last page
+
+    Pages are cached in Redis like `/repos`.
+    """,
+    response_description="One page of releases with pagination metadata",
+    responses={
+        200: {
+            "description": "Successfully retrieved a page of releases",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "owner": "user",
+                        "repo": "RepoName",
+                        "releases": [
+                            {
+                                "id": 123455,
+                                "tag_name": "v1.0.0",
+                                "name": "v1.0.0",
+                                "body": "First release",
+                                "url": "https://github.com/user/RepoName/releases/tag/v1.0.0",
+                                "draft": False,
+                                "prerelease": False,
+                                "created_at": "2023-06-01T00:00:00Z",
+                                "published_at": "2023-06-01T01:00:00Z",
+                                "assets": [],
+                            }
+                        ],
+                        "releases_page": {
+                            "total_count": 12,
+                            "page": 2,
+                            "per_page": 10,
+                            "has_more": False,
+                            "next": None,
+                        },
+                    }
+                }
+            },
+        },
+        404: {"description": "Repository not found"},
+        502: {"description": "GitHub releases request failed"},
+    },
+)
+async def get_repo_releases(
+    owner: str = Path(..., description="Repository owner"),
+    repo: str = Path(..., description="Repository name"),
+    page: int = Query(1, ge=1, description="Page number, starting at 1"),
+    per_page: int = Query(
+        10, ge=1, le=100, description="Releases per page (GitHub allows up to 100)"
+    ),
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
+) -> RepoReleases:
+    return await analytics_service.get_repo_releases(owner, repo, page, per_page)
 
 
 @analytics_router.get(

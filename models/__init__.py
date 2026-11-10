@@ -15,7 +15,14 @@ from models.contributions import (
 )
 from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
-from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
+from models.repositories import (
+    Contributor,
+    ReleaseAsset,
+    ReleasePage,
+    RepoDetail,
+    RepoRelease,
+    RepoReleases,
+)
 from models.stars import StarredList, StarsData
 
 __all__ = [
@@ -35,8 +42,10 @@ __all__ = [
     "PinnedRepo",
     "PullRequestDetail",
     "ReleaseAsset",
+    "ReleasePage",
     "RepoDetail",
     "RepoRelease",
+    "RepoReleases",
     "StarredList",
     "StarsData",
     "Week",

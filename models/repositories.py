@@ -29,6 +29,26 @@ class RepoRelease(BaseModel):
     published_at: Optional[str] = None
     assets: List[ReleaseAsset] = Field(default_factory=list)
 
+class ReleasePage(BaseModel):
+    """Where a list of releases sits in the repo's full release history."""
+
+    # Every release the repo has. None when GitHub's count lookup failed.
+    total_count: Optional[int] = None
+    page: int = 1
+    per_page: int
+    has_more: bool = False
+    # Path of the next page on this API, e.g.
+    # "/tashifkhan/repos/Paisa/releases?page=2&per_page=10". None on the last page.
+    next: Optional[str] = None
+
+class RepoReleases(BaseModel):
+    """One page of a repo's releases, newest first."""
+
+    owner: str
+    repo: str
+    releases: List[RepoRelease] = Field(default_factory=list)
+    releases_page: ReleasePage
+
 class RepoDetail(BaseModel):
     title: str
     description: Optional[str]
@@ -41,7 +61,10 @@ class RepoDetail(BaseModel):
     contributors: List[Contributor] = Field(default_factory=list)
     # False while the history scan is unfinished or the upstream API failed.
     contributors_complete: bool = False
+    # First page of releases only. Follow releases_page.next for the rest.
     releases: List[RepoRelease] = Field(default_factory=list)
+    # None when release data was unavailable, e.g. a skeleton row.
+    releases_page: Optional[ReleasePage] = None
 
     # Whether this repo is a fork of someone else's project.
     is_fork: bool = False

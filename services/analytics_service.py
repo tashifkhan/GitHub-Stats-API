@@ -7,7 +7,7 @@ from core.config import attribution_settings
 from models.analytics import GitHubStatsResponse, LanguageData
 from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
-from models.repositories import RepoDetail
+from models.repositories import RepoDetail, RepoReleases
 from models.stars import StarsData
 from services.achievements import get_user_achievements
 from services.attribution import get_user_contributions
@@ -29,7 +29,7 @@ from services.pull_requests import (
     get_user_issue_count,
     get_user_review_count,
 )
-from services.repositories import get_repo_details
+from services.repositories import get_release_page, get_repo_details
 from services.stars import (
     get_user_starred_lists,
     get_user_stars_data,
@@ -129,6 +129,11 @@ class AnalyticsService:
                     status_code=404, detail="User not found or API error"
                 )
             raise exc
+
+    async def get_repo_releases(
+        self, owner: str, repo: str, page: int, per_page: int
+    ) -> RepoReleases:
+        return await get_release_page(owner, repo, self.token, page, per_page)
 
     async def get_user_commits(self, username: str) -> List[CommitDetail]:
         try:

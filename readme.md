@@ -85,7 +85,8 @@ Returns repository-level data including:
   files come from GitHub's raw CDN; the rate-limited Contents API is used only
   as a fallback for alternate README names and casing.
 - GitHub topics / tags (`topics`)
-- Latest releases (`releases`)
+- The newest 10 releases (`releases`), with pagination metadata in
+  `releases_page`. See [Releases are paginated](#releases-are-paginated).
 - Release notes/body in Markdown (`releases[].body`)
 - Release asset download links (`releases[].assets[].download_url`)
 
@@ -110,9 +111,53 @@ Example:
           }
         ]
       }
-    ]
+    ],
+    "releases_page": {
+      "total_count": 12,
+      "page": 1,
+      "per_page": 10,
+      "has_more": true,
+      "next": "/user/repos/RepoName/releases?page=2&per_page=10"
+    }
   }
 ]
+```
+
+#### Releases are paginated
+
+`releases` is only the first page, so a repo with 12 releases returns 10 here.
+`releases_page` tells you whether there is more:
+
+- `total_count`: every release the repo has (`null` if GitHub's count failed)
+- `page`, `per_page`: always `1` and `10` in `/repos`
+- `has_more`: `true` when a later page exists
+- `next`: path of the next page on this API, or `null` on the last page
+
+To get every release, request `next` and keep following each response's
+`releases_page.next` until it is `null`. Keep the `per_page` in `next`; changing
+it partway shifts page boundaries and you skip or repeat releases.
+
+### Get Repository Releases
+
+`GET /{owner}/repos/{repo}/releases?page=1&per_page=10`
+
+One page of a repo's releases, newest first. `per_page` goes up to 100. The
+response has `owner`, `repo`, `releases` and the same `releases_page` object as
+`/repos`. A missing repo is `404`.
+
+```json
+{
+  "owner": "user",
+  "repo": "RepoName",
+  "releases": [{ "tag_name": "v1.0.0", "body": "First release", "assets": [] }],
+  "releases_page": {
+    "total_count": 12,
+    "page": 2,
+    "per_page": 10,
+    "has_more": false,
+    "next": null
+  }
+}
 ```
 
 ### Get Stars Information
