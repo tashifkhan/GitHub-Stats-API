@@ -114,18 +114,18 @@ def _stats_dict(stats: Any) -> Dict[str, Any]:
     return {}
 
 
-def _topic_pairs(raw: Any, exclude: Optional[Sequence[str]] = None) -> List[Tuple[str, int]]:
+def _topic_pairs(raw: Any, exclude: Optional[Sequence[str]] = None) -> List[Tuple[str, float]]:
     banned = {item.lower() for item in (exclude or []) if item}
-    pairs: List[Tuple[str, int]] = []
+    pairs: List[Tuple[str, float]] = []
     if not raw:
         return pairs
     for item in raw:
         if isinstance(item, Mapping):
             topic = item.get("topic") or item.get("name") or ""
-            count = int(item.get("count") or 0)
+            count = float(item.get("count") or 0)
         else:
             topic = getattr(item, "topic", None) or getattr(item, "name", "") or ""
-            count = int(getattr(item, "count", 0) or 0)
+            count = float(getattr(item, "count", 0) or 0)
         if not topic:
             continue
         if str(topic).lower() in banned:
@@ -335,7 +335,7 @@ def render_stats_svg(
             f'{_escape(topic_label)}</text>'
         )
         y += 16
-        max_topic = max((count for _, count in top_topics), default=1) or 1
+        max_topic = 100 if platform_key == "github" else max((count for _, count in top_topics), default=1) or 1
         bar_x = pad_x + 148
         bar_w = width - pad_x - bar_x - 48
         for topic, count in top_topics:
@@ -355,12 +355,20 @@ def render_stats_svg(
                     f'<rect x="{bar_x}" y="{y + 1}" width="{fill_w}" height="8" rx="3" '
                     f'fill="{_escape(accent_color)}" opacity="0.85"/>'
                 )
+            display_count = f"{count:.2f}%" if platform_key == "github" else _fmt_num(count)
             lines.append(
                 f'<text x="{width - pad_x}" y="{y + 10}" fill="{_escape(colors["ink"])}" font-size="11" '
                 f'font-family="ui-monospace,SFMono-Regular,Menlo,monospace" text-anchor="end">'
-                f'{_escape(_fmt_num(count))}</text>'
+                f'{_escape(display_count)}</text>'
             )
             y += 18
+
+    if platform_key == "github" and (extras or {}).get("languageStatus") == "pending":
+        y += 20
+        lines.append(
+            f'<text x="{pad_x}" y="{y}" fill="{_escape(colors["muted"])}" '
+            f'font-size="11">Languages pending</text>'
+        )
 
     height = y + 22
     body = "\n  ".join(lines)

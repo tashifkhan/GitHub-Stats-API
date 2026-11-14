@@ -203,25 +203,37 @@ patches rather than the upstream codebase, and in their own repos other
 contributors' commits are ignored. Vendored paths (`node_modules`, `dist`, lockfiles, generated and
 minified files) are skipped so they cannot dominate the split.
 
-Co-author discovery scans the default branch under the same request deadline.
-If that scan fails or runs out of time, coverage stays partial. Redis saves its
-cursor so later requests can continue, but the API does not cache an incomplete
-repo measurement. Contributor-stat estimates include co-authored additions and
-deletions.
+Co-author discovery scans the default branch under the request deadline. If
+that scan fails or runs out of time, coverage stays partial. Redis saves its
+cursor, but incomplete repository measurements do not become cached rankings.
 
-This is measured by walking commit diffs, which costs hundreds of GitHub API
-calls and takes minutes for a large account — far longer than a single request
-may run. So:
+Public language rankings read complete cached attribution. They never replace
+missing authored data with whole-repository bytes. The contract is:
 
-- Every walk is bounded by a wall-clock deadline and caches each repo it
-  measures, keyed by that repo's `pushed_at`. Repos are only re-measured after
-  they receive new commits.
-- `/{username}/languages` and `/{username}/stats` never substitute
-  whole-repository language bytes in attributed mode. A cold cache can return a
-  partial or empty own-commit split; `coverage` and `partial` on the breakdown
-  endpoint show how much has been measured.
-- `/{username}/repos` reads the attribution cache but never walks diffs itself,
-  because it is already the heaviest endpoint in the API.
+- `/languages` returns 503 with `language_attribution_pending` when measurement
+  is incomplete. Its error includes coverage and uses `Cache-Control: no-store`.
+- `/stats` keeps core metrics available and adds `languageStats.status=pending`
+  when languages are unavailable. An empty list in that state is not a measured
+  zero. SVG cards show `Languages pending`. Pending responses are not cached.
+- Languages, stats, and SVG routes exclude Markdown, JSON, YAML and XML by
+  default. Pass `exclude=` to include all languages. Exclusions ignore case.
+- Percentages use authored line additions after exclusions. They are not
+  current repository bytes or remaining lines of code. Whole-repository byte
+  mode remains explicit through `attributed=false`.
+- Percentage rounding is deterministic and totals 100.00 for a nonempty split.
+  Canonical JSON and SVG preserve hundredths. Cards label percentages with `%`.
+- A capped scan reports `method=sampled` on the breakdown. Language line counts
+  describe the measured sample and are not extrapolated to lifetime additions.
+- `/repos` includes `user_languages_complete` and `user_languages_method` so a
+  missing measurement cannot be mistaken for a measured empty language list.
+- `/contributions/breakdown` performs refresh work and is never response-cached.
+
+This requires preparing complete measurements before switching production
+traffic. The existing worker caps cannot finish repositories above the
+per-repository commit limit. Repeated HTTP refreshes alone do not solve that.
+A resumable full-history worker and publication of complete versioned snapshots
+are planned before rollout. Until then, capped accounts correctly stay pending.
+No worker, schedule, cache warming, or deployment is part of this local change.
 
 The repo response's `contributors` list also includes co-authors. It returns the
 top 10 accounts by authored plus co-authored commits, with each commit counted

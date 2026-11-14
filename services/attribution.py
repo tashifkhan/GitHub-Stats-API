@@ -10,8 +10,8 @@ Cost control, in order of preference:
 
 1. If the user's commit count in a repo fits the budget, every commit diff is
    read and the result is exact.
-2. If it does not, the newest commits are sampled for the *language mix* and
-   scaled up to the user's real addition total from the contributor stats.
+2. If it does not, report the measured sample without extrapolating its
+   language mix to lifetime additions. Sampled results stay incomplete.
 3. If commit diffs are unavailable entirely, exact user totals from contributor
    stats are returned without inventing a language mix from the whole project.
 
@@ -32,6 +32,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from fastapi import HTTPException
 
 from core import cache
 from core.config import attribution_settings as settings
@@ -46,9 +47,10 @@ from services.client import (
     list_user_repositories,
     rate_limit_remaining,
 )
-from services.language_map import detect_language, filter_languages, is_vendored
+from services.language_distribution import language_distribution
+from services.language_map import detect_language, is_vendored
 
-CACHE_VERSION = "v4"
+CACHE_VERSION = "v5"
 
 _LAST_PAGE_RE = re.compile(r'<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"')
 
@@ -159,19 +161,23 @@ async def _count_user_commits(
     params = {"author": username, "per_page": "1"}
     try:
         response = await client.get(url, params=params, headers=github_headers(token))
-    except Exception:
-        return 0
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Commit count unavailable") from exc
 
-    # 409 is an empty repository, 404 a missing/blocked one.
-    if response.status_code != 200:
+    # Only 409 proves the repository is empty.
+    if response.status_code == 409:
         return 0
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Commit count unavailable")
 
     last = _last_page(response)
     if last is not None:
         return last
 
     payload = response.json()
-    return len(payload) if isinstance(payload, list) else 0
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=502, detail="Invalid commit count response")
+    return len(payload)
 
 
 async def _list_commit_shas(
@@ -189,20 +195,24 @@ async def _list_commit_shas(
     page = 1
 
     while len(shas) < limit and not deadline.expired:
-        per_page = min(100, limit - len(shas))
+        per_page = min(100, limit)
         params = {"author": username, "per_page": str(per_page), "page": str(page)}
         try:
             response = await client.get(
                 url, params=params, headers=github_headers(token)
             )
-        except Exception:
-            break
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Commit listing unavailable") from exc
 
-        if response.status_code != 200:
+        if response.status_code == 409:
             break
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail="Commit listing unavailable")
 
         payload = response.json()
-        if not isinstance(payload, list) or not payload:
+        if not isinstance(payload, list):
+            raise HTTPException(status_code=502, detail="Invalid commit listing")
+        if not payload:
             break
 
         for item in payload:
@@ -392,39 +402,35 @@ async def _fetch_commit_files(
 ) -> Optional[List[Dict[str, Any]]]:
     """Changed files for one commit. ``None`` when it should not be counted."""
     url = f"{GITHUB_API}/repos/{owner}/{repo}/commits/{sha}"
+    files: List[Dict[str, Any]] = []
+    visited: set[str] = set()
     async with semaphore:
-        # Re-checked after acquiring: this commit may have queued behind many
-        # others and the budget can have run out while it waited.
-        if deadline.expired:
-            return None
-        try:
-            response = await client.get(url, headers=github_headers(token))
-        except Exception:
-            return None
-
-    # Commit details are the bulk of a walk's spending, so watching their
-    # headers is enough to notice the hourly budget draining.
-    if guard is not None:
-        guard.observe(response)
-
-    if response.status_code != 200:
-        return None
-
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    # Merge commits restate work already counted in the parents.
-    parents = payload.get("parents")
-    if isinstance(parents, list) and len(parents) > 1:
-        return []
-
-    files = payload.get("files")
-    return files if isinstance(files, list) else []
+        while url:
+            if deadline.expired or url in visited:
+                return None
+            visited.add(url)
+            try:
+                response = await client.get(url, headers=github_headers(token))
+                if guard is not None:
+                    guard.observe(response)
+                if response.status_code != 200:
+                    return None
+                payload = response.json()
+            except (httpx.HTTPError, ValueError):
+                return None
+            if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+                return None
+            parents = payload.get("parents")
+            if isinstance(parents, list) and len(parents) > 1:
+                return []
+            files.extend(payload["files"])
+            # GitHub caps commit detail responses at 3000 files. At that
+            # boundary the API cannot establish that the diff is complete.
+            if len(files) >= 3000:
+                return None
+            match = re.search(r'<([^>]+)>;\s*rel="next"', response.headers.get("Link", ""))
+            url = match.group(1) if match else ""
+    return files
 
 
 async def _fetch_contributor_totals(
@@ -565,21 +571,15 @@ def _build_language_list(
     files_by_language: Dict[str, int],
     excluded: Optional[List[str]],
 ) -> List[LanguageContribution]:
-    filtered = filter_languages(additions_by_language, excluded)
-    total = sum(filtered.values())
-    if total <= 0:
-        return []
-
-    languages = [
+    return [
         LanguageContribution(
             name=name,
-            percentage=round((lines / total) * 100, 2),
+            percentage=percentage,
             lines=lines,
             files=files_by_language.get(name, 0),
         )
-        for name, lines in filtered.items()
+        for name, lines, percentage in language_distribution(additions_by_language, excluded)
     ]
-    return sorted(languages, key=lambda item: (item.lines, item.name), reverse=True)
 
 
 def _explain(
@@ -778,12 +778,13 @@ async def analyze_repo_contribution(
             deletions = stats["user_deletions"]
             method = "contributor_stats"
 
-    elif truncated and stats and stats["user_additions"] > measured_additions:
-        # The sample gives the language mix; the stats give the true volume.
-        additions_by_language = _scale(additions_by_language, stats["user_additions"])
+    elif truncated:
+        # A recent sample cannot establish the language mix of old commits.
+        # Keep measured language lines separate from contributor-wide totals.
+        method = "sampled"
+    if stats and truncated and stats["user_additions"] > measured_additions:
         additions = stats["user_additions"]
         deletions = stats["user_deletions"]
-        method = "estimated"
 
     contribution_percentage: Optional[float] = None
     if stats and stats["repo_additions"] > 0:
@@ -806,7 +807,7 @@ async def analyze_repo_contribution(
         truncated=truncated,
     )
 
-    if deadline.expired or not coauthored.complete or not diffs_complete:
+    if truncated or deadline.expired or not coauthored.complete or not diffs_complete:
         # Incomplete discovery or failed diffs must not persist for the TTL.
         progress.deferred += 1
         return contribution
@@ -887,6 +888,9 @@ async def get_user_contributions(
         for result in results
         if isinstance(result, RepoContribution)
     ]
+    # A failed repo task is missing coverage, not a repository to omit from
+    # the denominator. Otherwise gather failures can look like 100% coverage.
+    progress.deferred += sum(isinstance(result, BaseException) for result in results)
 
     additions_by_language: Dict[str, int] = {}
     files_by_language: Dict[str, int] = {}

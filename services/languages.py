@@ -16,6 +16,8 @@ from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelea
 from models.stars import StarredList, StarsData
 from services.attribution import get_user_contributions
 from services.client import list_user_repositories
+from services.client import github_headers as api_headers, raise_for_github_status
+from services.language_distribution import language_distribution
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -35,19 +37,19 @@ def github_headers(token: str) -> Dict[str, str]:
 
 
 async def get_language_stats(
-    username: str, token: str, excluded_languages: List[str]
+    username: str, token: str, excluded_languages: List[str], include_forks: bool = True
 ) -> List[LanguageData]:
     async with httpx.AsyncClient() as client:
         repos, _ = await list_user_repositories(
             client, username, token, sort="updated", repo_type="all"
         )
 
-        excluded_set = set(excluded_languages)
         language_totals: Dict[str, int] = {}
         language_urls = [
             repo.get("languages_url")
             for repo in repos
             if isinstance(repo, dict) and repo.get("languages_url")
+            and not repo.get("archived") and (include_forks or not repo.get("fork"))
         ]
 
         semaphore = asyncio.Semaphore(8)
@@ -56,12 +58,19 @@ async def get_language_stats(
             async with semaphore:
                 lang_response = await client.get(
                     url,
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers=api_headers(token),
                 )
-                if lang_response.status_code != 200:
-                    return {}
+                if lang_response.status_code == 404:
+                    # A repo disappearing does not make its owner invalid.
+                    raise HTTPException(status_code=502, detail="Repository language data unavailable")
+                raise_for_github_status(lang_response, username)
                 data = lang_response.json()
-                return data if isinstance(data, dict) else {}
+                if not isinstance(data, dict) or any(
+                    not isinstance(value, int) or isinstance(value, bool) or value < 0
+                    for value in data.values()
+                ):
+                    raise HTTPException(status_code=502, detail="Invalid GitHub language data")
+                return data
 
         language_payloads = await asyncio.gather(
             *(fetch_languages(url) for url in language_urls)
@@ -69,19 +78,13 @@ async def get_language_stats(
 
         for langs in language_payloads:
             for lang, bytes_used in langs.items():
-                if lang in excluded_set:
-                    continue
                 language_totals[lang] = language_totals.get(lang, 0) + bytes_used
 
-        total_bytes = sum(language_totals.values())
-        if total_bytes == 0:
-            return []
-
         language_stats = [
-            LanguageData(name=name, percentage=round((bytes / total_bytes) * 100, 2))
-            for name, bytes in language_totals.items()
+            LanguageData(name=name, percentage=percentage)
+            for name, _, percentage in language_distribution(language_totals, excluded_languages)
         ]
-        return sorted(language_stats, key=lambda x: x.percentage, reverse=True)
+        return language_stats
 
 
 async def get_attributed_language_stats(
@@ -90,7 +93,7 @@ async def get_attributed_language_stats(
     excluded_languages: List[str],
     include_forks: bool = True,
     deadline_seconds: Optional[float] = None,
-    cache_only: bool = False,
+    cache_only: bool = True,
 ) -> List[LanguageData]:
     """Language split weighted by the lines the user personally wrote.
 
@@ -98,11 +101,9 @@ async def get_attributed_language_stats(
     contributors and counts only the user's own commits, so a fork of a large
     upstream project contributes just the patches they authored.
 
-    Measuring every repo takes far longer than a request allows, so the walk is
-    bounded by ``deadline_seconds`` and may return a partial own-commit split.
-    It deliberately never falls back to whole-repository language bytes: doing
-    so would mix upstream code from forks and other contributors' code into a
-    result the caller explicitly requested to be attributed.
+    Public reads use cached measurements. An unfinished scan cannot establish
+    a user's leading language, so only complete results become a ranking.
+    The breakdown endpoint retains partial measurements for refresh progress.
     """
     stats = await get_user_contributions(
         username,
@@ -113,6 +114,19 @@ async def get_attributed_language_stats(
         deadline_seconds=deadline_seconds,
         cache_only=cache_only,
     )
+    if stats.partial or stats.truncated or (stats.coverage < 1.0 and stats.repos_considered):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "language_attribution_pending",
+                "message": "Complete authored-language measurements are not available yet.",
+                "coverage": stats.coverage,
+                "partial": stats.partial,
+                "truncated": stats.truncated,
+                "basis": "authored_additions",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
     return [
         LanguageData(name=language.name, percentage=language.percentage)
         for language in stats.languages

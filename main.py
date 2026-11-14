@@ -1,3 +1,4 @@
+from core.runtime import RequestBudgetMiddleware
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(CacheRateLimitMiddleware, platform="github")
+app.add_middleware(RequestBudgetMiddleware)
 
 # Routes
 from routes import (
