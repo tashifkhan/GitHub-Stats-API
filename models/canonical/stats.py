@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class TopicCount(BaseModel):
     topic: str
-    count: int
+    count: int | float
 
 
 class Stats(BaseModel):

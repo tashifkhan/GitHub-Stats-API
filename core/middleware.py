@@ -1,3 +1,4 @@
+from core.runtime import state
 import hashlib
 import re
 import json
@@ -27,7 +28,7 @@ def _client_ip(request: Request) -> str:
 
 
 def _handle_from_path(path: str) -> str | None:
-    if path in SKIP_PATHS or path.startswith("/docs/") or path.startswith("/redoc/"):
+    if path in SKIP_PATHS or path.startswith(("/docs/", "/redoc/", "/internal/")):
         return None
     segment = path.strip("/").split("/", 1)[0].strip()
     if not segment or "." in segment:
@@ -43,7 +44,8 @@ def _query_string(request: Request) -> str:
 def _cache_key(platform: str, request: Request) -> str:
     raw = f"{request.method}:{request.url.path}:{_query_string(request)}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"cache:{platform}:{digest}"
+    # Bypass old independently cached language calculations after rollout.
+    return f"cache:v3:{platform}:language-v2:{digest}"
 
 
 def _is_invalid_user(status_code: int, body: bytes) -> bool:
@@ -107,6 +109,10 @@ class CacheRateLimitMiddleware(BaseHTTPMiddleware):
         if handle is None:
             return await call_next(request)
 
+        limited = await self._check_limits(request, handle)
+        if not limited.allowed:
+            return _rate_limited_response(limited)
+
         key = _cache_key(self.platform, request)
         cached = await get_json(key)
         if cached is not None:
@@ -132,10 +138,6 @@ class CacheRateLimitMiddleware(BaseHTTPMiddleware):
                 headers={"X-Cache": "NEGATIVE-HIT"},
             )
 
-        limited = await self._check_limits(request, handle)
-        if not limited.allowed:
-            return _rate_limited_response(limited)
-
         response = await call_next(request)
         body = b""
         async for chunk in response.body_iterator:
@@ -145,12 +147,31 @@ class CacheRateLimitMiddleware(BaseHTTPMiddleware):
         headers.pop("content-length", None)
         headers["X-Cache"] = "MISS"
 
-        invalid_user = _is_invalid_user(response.status_code, body)
+        current = state.get()
+        if current and current.meta:
+            headers["Cache-Control"] = "no-store"
+            try:
+                payload = json.loads(body)
+                if isinstance(payload, dict):
+                    payload.setdefault("meta", {}).update(current.meta)
+                    body = json.dumps(payload, separators=(",", ":")).encode()
+            except (ValueError, TypeError):
+                pass
+        # An upstream error envelope is not a cacheable success.
+        app_status = response.status_code
+        try:
+            payload = json.loads(body)
+            if app_status == 200 and isinstance(payload, dict) and payload.get("status") == "error":
+                app_status = 404 if _is_invalid_user(200, body) else 502
+                headers["Cache-Control"] = "no-store"
+        except (ValueError, TypeError):
+            pass
+        invalid_user = _is_invalid_user(app_status, body)
         if invalid_user:
             await set_json(invalid_key, {"invalid": True}, settings.invalid_user_cache_ttl_seconds)
-        elif response.status_code == 200 and not any(
+        elif app_status == 200 and not any(
             directive.strip().lower() in {"no-store", "no-cache", "private"}
-            for directive in response.headers.get("cache-control", "").split(",")
+            for directive in headers.get("cache-control", headers.get("Cache-Control", "")).split(",")
         ):
             headers.setdefault("Cache-Control", f"public, max-age={settings.cache_ttl_seconds}")
             ttl = _ttl_from_cache_control(headers, settings.cache_ttl_seconds)
@@ -158,7 +179,7 @@ class CacheRateLimitMiddleware(BaseHTTPMiddleware):
 
         return Response(
             content=body,
-            status_code=response.status_code,
+            status_code=app_status,
             headers=headers,
             media_type=response.media_type,
             background=response.background,

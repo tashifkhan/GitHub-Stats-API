@@ -222,8 +222,9 @@ def test_repo_totals_include_coauthors(monkeypatch, primary, budget, partial):
     else:
         assert result.method == "contributor_stats"
         assert result.languages == []
-    assert bool(stored) is not partial
-    assert (progress.resolved, progress.deferred) == ((0, 1) if partial else (1, 0))
+    incomplete = partial or budget == 0
+    assert bool(stored) is not incomplete
+    assert (progress.resolved, progress.deferred) == ((0, 1) if incomplete else (1, 0))
 
 
 @pytest.mark.parametrize("partial", [False, True])
