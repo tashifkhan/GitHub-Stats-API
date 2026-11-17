@@ -15,7 +15,10 @@ if count == 1 or redis.call('TTL', KEYS[2]) < 0 then
  redis.call('EXPIRE', KEYS[2], ARGV[2])
 end
 local ttl = redis.call('TTL', KEYS[2])
-if count <= tonumber(ARGV[1]) then return {1, ttl, tonumber(ARGV[1])-count} end
+if count <= tonumber(ARGV[1]) then
+ redis.call('DEL', KEYS[3])
+ return {1, ttl, tonumber(ARGV[1])-count}
+end
 local violations = redis.call('INCR', KEYS[3])
 redis.call('EXPIRE', KEYS[3], ARGV[4])
 local delay = math.min(tonumber(ARGV[3])*2^math.min(violations-1, 20), tonumber(ARGV[4]))

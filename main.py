@@ -30,14 +30,15 @@ app = FastAPI(
 # CORS
 from fastapi.middleware.cors import CORSMiddleware
 
+app.add_middleware(CacheRateLimitMiddleware, platform="github")
+app.add_middleware(RequestBudgetMiddleware)
+# Added last so it is outermost: budget 504s and 429s still carry CORS headers.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(CacheRateLimitMiddleware, platform="github")
-app.add_middleware(RequestBudgetMiddleware)
 
 # Routes
 from routes import (
