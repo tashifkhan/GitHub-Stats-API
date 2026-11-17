@@ -90,12 +90,12 @@ def get_redis():
     return _client
 
 
-async def command(name, *args):
+async def command(name, *args, **kwargs):
     client = get_redis()
     if client is None:
         return None
     try:
-        return await asyncio.wait_for(getattr(client, name)(*args), min(OPERATION_TIMEOUT, remaining()))
+        return await asyncio.wait_for(getattr(client, name)(*args, **kwargs), min(OPERATION_TIMEOUT, remaining()))
     except Exception:
         return None
 

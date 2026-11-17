@@ -17,7 +17,7 @@ async def source(key, producer, ttl=300, stale_ttl=3600):
         if cached and time.time() - cached['at'] < ttl:
             return cached['data']
         owner = uuid.uuid4().hex
-        locked = await command('set', key+':lease', owner, 10, True) if redis_enabled() else None
+        locked = await command('set', key+':lease', owner, ex=10, nx=True) if redis_enabled() else None
         if redis_enabled() and not locked:
             if cached:
                 current = state.get()
