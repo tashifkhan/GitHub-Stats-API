@@ -665,6 +665,10 @@ async def analyze_repo_contribution(
     cache_key = _cache_key(full_name, username, version_token)
 
     cached = await cache.get_json(cache_key)
+    if cached and cached.get("none"):
+        # Settled earlier: the user has no commits here at this push.
+        progress.resolved += 1
+        return None
     if cached:
         try:
             restored = RepoContribution.model_validate(cached)
@@ -711,6 +715,9 @@ async def analyze_repo_contribution(
         if deadline.expired or not coauthored.complete:
             progress.deferred += 1
         else:
+            # Cache the empty result too. Otherwise a cache-only read counts
+            # this repo as unmeasured forever and the user never completes.
+            await cache.set_json(cache_key, {"none": True}, settings.cache_ttl_seconds)
             progress.resolved += 1
         return None
 
