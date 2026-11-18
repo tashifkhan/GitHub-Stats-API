@@ -292,11 +292,21 @@ To run this project locally, follow these steps:
     pip install -r requirements.txt
     ```
 
-3.  **Create a `.env` file** and add your GitHub token:
+3.  **Create a `.env` file** and add your GitHub token. One token is enough;
+    list several comma-separated to pool their hourly quotas:
 
     ```
     GITHUB_TOKEN=your_github_token_here
+    # or, in preference order:
+    GITHUB_TOKENS=first_token_here,second_token_here
     ```
+
+    Each token has its own 5,000 requests/hour allowance. The pool uses the
+    first healthy token and fails over when one is exhausted, cooling down
+    after a secondary limit, or rejected. Tokens are identified in logs by an
+    eight-character digest, never printed. Prefer fine-grained tokens limited
+    to public repository read access; a classic token with `repo` scope can
+    read private repositories too.
 
 4.  **Run the application:**
     ```bash

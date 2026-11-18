@@ -9,11 +9,13 @@ and can be run by hand:
     python scripts/drain_attribution.py --minutes 10
     python scripts/drain_attribution.py --minutes 10 --seed tashifkhan
 
-Needs GITHUB_TOKEN, a Redis store (REDIS_URL or UPSTASH_REDIS_REST_*), and
-REFRESH_WORKER_ENABLED=true. Each claimed user gets one walk of --pass-seconds.
-Measured repos are cached, so an unfinished user is retried on a later claim
-and continues where it stopped. The walk's own rate-limit floor stops it before
-the token runs dry. When that happens this script stops too.
+Needs GITHUB_TOKENS (or the older single GITHUB_TOKEN), a Redis store
+(REDIS_URL or UPSTASH_REDIS_REST_*), and REFRESH_WORKER_ENABLED=true. Each
+claimed user gets one walk of --pass-seconds. Measured repos are cached, so an
+unfinished user is retried on a later claim and continues where it stopped. The
+walk's own rate-limit floor stops it before the token runs dry; when the current
+token reaches the floor the pool moves to the next account, and only when every
+account is spent does this script stop.
 """
 
 import argparse
@@ -29,7 +31,11 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(".env.local")
 
+from fastapi import HTTPException  # noqa: E402
+
 from core import cache, jobs  # noqa: E402
+from core.config import attribution_settings  # noqa: E402
+from core.token_pool import NoTokenAvailable, get_token_pool  # noqa: E402
 from services.attribution import get_user_contributions  # noqa: E402
 from services.languages import COMPLETE_MARKER_TTL_SECONDS, _complete_marker  # noqa: E402
 
@@ -48,14 +54,59 @@ def make_handler(token, pass_seconds, log=print, max_pass_seconds=None, time_lef
     """
     max_pass_seconds = max_pass_seconds or pass_seconds
 
+    def next_token():
+        if token:
+            return token
+        return get_token_pool().acquire(
+            min_remaining=attribution_settings.rate_limit_floor
+        )
+
     async def handle(job):
         username = job.payload["subject"]
         planned = float(job.data.get("passSeconds", pass_seconds))
         limit = min(planned, max_pass_seconds, time_left() if time_left else planned)
         started = time.monotonic()
-        stats = await get_user_contributions(
-            username, token, include_repositories=False, deadline_seconds=limit
-        )
+        try:
+            active = next_token()
+        except NoTokenAvailable as exc:
+            raise QuotaExhausted(username) from exc
+
+        async def walk(active_token, seconds):
+            return await get_user_contributions(
+                username,
+                active_token,
+                include_repositories=False,
+                deadline_seconds=seconds,
+            )
+
+        try:
+            stats = await walk(active, limit)
+        except HTTPException as exc:
+            if exc.status_code != 503 or token:
+                raise
+            # GitHub refused the very first call: the pool has now seen the
+            # 403, so try the next account below.
+            stats = None
+
+        if not token and (stats is None or stats.status == "rate_limited"):
+            # The guard stops at the floor, not at zero, so this token may still
+            # have calls left. Another account with real headroom is a better
+            # use of the remaining pass than ending the whole drain.
+            left = max(1.0, limit - (time.monotonic() - started))
+            try:
+                fallback = get_token_pool().acquire(
+                    min_remaining=attribution_settings.rate_limit_floor
+                )
+            except NoTokenAvailable:
+                raise QuotaExhausted(username)
+            if fallback == active:
+                raise QuotaExhausted(username)
+            try:
+                stats = await walk(fallback, left)
+            except HTTPException as exc:
+                if exc.status_code == 503:
+                    raise QuotaExhausted(username) from exc
+                raise
         log(
             f"{username}: {stats.status}, coverage {stats.coverage:.0%} "
             f"({stats.repos_analyzed}/{stats.repos_considered} repos) "
@@ -123,9 +174,8 @@ async def main():
     parser.add_argument("--seed", nargs="*", default=[], help="Usernames to queue before draining")
     args = parser.parse_args()
 
-    token = os.getenv("GITHUB_TOKEN", "")
-    if not token:
-        print("GITHUB_TOKEN is not set", file=sys.stderr)
+    if not get_token_pool().configured:
+        print("GITHUB_TOKENS (or GITHUB_TOKEN) is not set", file=sys.stderr)
         return 1
     if not jobs.enabled():
         print("Set REFRESH_WORKER_ENABLED=true and a Redis store (REDIS_URL or UPSTASH_REDIS_REST_*).", file=sys.stderr)
@@ -137,7 +187,7 @@ async def main():
 
     max_pass = args.max_pass_seconds or args.pass_seconds * 4
     stop_at = time.monotonic() + args.minutes * 60
-    handler = make_handler(token, args.pass_seconds, max_pass_seconds=max_pass,
+    handler = make_handler(None, args.pass_seconds, max_pass_seconds=max_pass,
                            time_left=lambda: max(10.0, stop_at - time.monotonic() - 10))
     claimed, exhausted = await drain(handler, args.minutes, args.pass_seconds, max_pass_seconds=max_pass)
     print(f"claimed {claimed} job(s)" + (", stopped at the GitHub quota floor" if exhausted else ""))

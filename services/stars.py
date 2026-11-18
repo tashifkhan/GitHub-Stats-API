@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -59,7 +61,7 @@ async def get_user_stars_data(username: str, token: str) -> StarsData:
     Returns:
         StarsData with total stars and repository details
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         try:
             repos, _ = await list_user_repositories(
                 client, username, token, sort="updated", repo_type="all"
@@ -124,7 +126,7 @@ async def fetch_star_lists(username: str) -> List[StarredList]:
 
     url = f"{BASE_GITHUB_URL}/{username}?tab=stars"
 
-    async with httpx.AsyncClient(
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS,
         follow_redirects=True,
         timeout=15.0,
     ) as client:
@@ -205,7 +207,7 @@ async def fetch_star_lists(username: str) -> List[StarredList]:
 async def fetch_repos_from_star_list(list_url: str) -> List[str]:
     """Fetch repositories inside a starred list (HTML scrape)."""
 
-    async with httpx.AsyncClient(
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS,
         follow_redirects=True,
         timeout=15.0,
     ) as client:
