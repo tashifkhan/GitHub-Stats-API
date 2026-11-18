@@ -249,6 +249,16 @@ def authorship_cache_key(repo: Dict[str, Any]) -> str:
     return f"gh:authors:v1:{full_name}:{version}"
 
 
+SCAN_PAGE_MAX = 100
+SCAN_PAGE_MIN = 6
+SCAN_GROW_AFTER = 10
+
+
+def _is_timeout_error(errors) -> bool:
+    text = " ".join(str(error.get("message", "")) for error in errors if isinstance(error, dict)).lower()
+    return "timeout" in text or "timed out" in text or "took too long" in text
+
+
 async def scan_commit_authors(
     client: httpx.AsyncClient,
     owner: str,
@@ -267,10 +277,10 @@ async def scan_commit_authors(
     """
     result = AuthorshipScan()
     query = """
-    query($owner: String!, $repo: String!, $after: String) {
+    query($owner: String!, $repo: String!, $after: String, $first: Int!) {
       repository(owner: $owner, name: $repo) {
         defaultBranchRef { target { ... on Commit {
-          history(first: 100, after: $after) {
+          history(first: $first, after: $after) {
             nodes {
               oid additions deletions
               parents(first: 1) { totalCount }
@@ -287,6 +297,11 @@ async def scan_commit_authors(
     """
     cursor = None
     seen: set[str] = set()
+    # GitHub times out (502/504 or a timeout error) on history pages whose
+    # commits carry large diff stats. Retrying the same page at the same size
+    # fails forever, so shrink the page on a timeout and grow it back after.
+    page_size = SCAN_PAGE_MAX
+    good_pages = 0
     if checkpoint_key:
         checkpoint = await cache.get_json(checkpoint_key)
         if isinstance(checkpoint, dict):
@@ -294,6 +309,7 @@ async def scan_commit_authors(
                 result = AuthorshipScan(**checkpoint["result"])
                 cursor = checkpoint["cursor"]
                 seen = set(checkpoint["seen"])
+                page_size = int(checkpoint.get("pageSize", SCAN_PAGE_MAX))
                 if result.complete:
                     return result
             except (KeyError, TypeError):
@@ -304,15 +320,21 @@ async def scan_commit_authors(
                 f"{GITHUB_API}/graphql",
                 headers=github_headers(token),
                 json={"query": query, "variables": {
-                    "owner": owner, "repo": repo, "after": cursor,
+                    "owner": owner, "repo": repo, "after": cursor, "first": page_size,
                 }},
             )
             if guard is not None:
                 guard.observe(response)
+            if response.status_code in (502, 504) and page_size > SCAN_PAGE_MIN:
+                page_size, good_pages = max(SCAN_PAGE_MIN, page_size // 2), 0
+                continue
             if response.status_code != 200:
                 break
             payload = response.json()
             if payload.get("errors"):
+                if _is_timeout_error(payload["errors"]) and page_size > SCAN_PAGE_MIN:
+                    page_size, good_pages = max(SCAN_PAGE_MIN, page_size // 2), 0
+                    continue
                 break
             repository = (payload.get("data") or {}).get("repository")
             if not isinstance(repository, dict):
@@ -365,9 +387,15 @@ async def scan_commit_authors(
             if not result.complete and (not next_cursor or next_cursor == cursor):
                 break
             cursor = next_cursor
+            # Grow back slowly. One large page through a heavy stretch of
+            # history costs a full upstream timeout.
+            good_pages += 1
+            if good_pages >= SCAN_GROW_AFTER:
+                page_size, good_pages = min(SCAN_PAGE_MAX, page_size * 2), 0
             if checkpoint_key:
                 await cache.set_json(checkpoint_key, {
                     "result": asdict(result), "cursor": cursor, "seen": sorted(seen),
+                    "pageSize": page_size,
                 }, settings.cache_ttl_seconds)
             if result.complete:
                 break

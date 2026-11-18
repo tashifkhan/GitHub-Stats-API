@@ -286,3 +286,47 @@ def test_repo_contributors_credit_every_author_and_reuse_scan(monkeypatch, parti
         else {"alice": 2, "bob": 2, "charlie": 2}
     )
     assert all(item.avatar_url and item.html_url for item in detail.contributors)
+
+
+@pytest.mark.parametrize("failure", [
+    lambda: httpx.Response(502),
+    lambda: httpx.Response(200, json={"errors": [{"message": "Something went wrong while executing your query. This may be the result of a timeout"}]}),
+])
+def test_scan_shrinks_pages_that_time_out_instead_of_stalling(failure):
+    sizes = []
+
+    def handler(request):
+        size = json.loads(request.content)["variables"]["first"]
+        sizes.append(size)
+        if size > 25:
+            return failure()
+        return httpx.Response(200, json=page([commit("shared", ["alice", "bob"])], None))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await attribution.scan_commit_authors(
+                client, "alice", "repo", "token", attribution.Deadline(None),
+            )
+
+    result = asyncio.run(run())
+    assert sizes == [100, 50, 25]
+    assert result.complete is True
+    assert result.contributors["bob"]["contributions"] == 1
+
+
+def test_scan_gives_up_below_the_smallest_page():
+    sizes = []
+
+    def handler(request):
+        sizes.append(json.loads(request.content)["variables"]["first"])
+        return httpx.Response(502)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await attribution.scan_commit_authors(
+                client, "alice", "repo", "token", attribution.Deadline(None),
+            )
+
+    result = asyncio.run(run())
+    assert sizes == [100, 50, 25, 12, 6]
+    assert result.complete is False
