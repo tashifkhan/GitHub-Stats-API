@@ -5,6 +5,8 @@ import time
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from fastapi import HTTPException
 
 from core import cache
@@ -173,7 +175,9 @@ async def get_release_page(
             return RepoReleases.model_validate(cached)
         except Exception:
             pass
-    async with httpx.AsyncClient(timeout=12.0) as client:
+    async with httpx.AsyncClient(
+        event_hooks=GITHUB_RESPONSE_HOOKS, timeout=12.0
+    ) as client:
         result = await fetch_release_page(client, owner, repo_name, token, page, per_page)
     if result is None:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -675,7 +679,9 @@ async def get_repo_details(
     # write the cache even when the account has many repos.
     deadline = time.monotonic() + attribution_settings.repo_details_deadline_seconds
 
-    async with httpx.AsyncClient(timeout=12.0) as client:
+    async with httpx.AsyncClient(
+        event_hooks=GITHUB_RESPONSE_HOOKS, timeout=12.0
+    ) as client:
         try:
             repos, remaining = await list_user_repositories(
                 client, username, token, sort="updated", repo_type="all"

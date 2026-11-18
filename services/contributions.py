@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -73,7 +75,7 @@ async def get_contribution_graphs(
 ) -> Dict:
     current_year = datetime.now().year
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         query = await build_contribution_graph_query(username, current_year)
         initial_response = (
             await _execute_graphql_query_with_client(client, query, token)

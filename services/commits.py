@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -92,7 +94,7 @@ async def get_all_commits(username: str, token: str) -> List[CommitDetail]:
     Returns:
         List of commit details sorted by timestamp (most recent first)
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         try:
             repos, _ = await list_user_repositories(
                 client, username, token, sort="updated", repo_type="all"

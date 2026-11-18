@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from typing import List, Dict, Optional
 from dataclasses import asdict
-import os
 
 from models.analytics import GitHubStatsResponse
 from models.commits import CommitDetail
 from models.repositories import RepoDetail
+from routes.dependencies import get_github_token
 from services.commits import get_all_commits as get_user_commit_history
 from services.contributions import (
     calculate_total_commits,
@@ -17,14 +17,6 @@ from services.languages import get_language_stats
 from services.repositories import get_repo_details as get_user_repos
 
 api_router = APIRouter()
-
-
-# Dependency to get GitHub Token
-async def get_github_token() -> str:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="GitHub token not configured")
-    return token
 
 
 @api_router.get(
