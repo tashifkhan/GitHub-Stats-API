@@ -652,6 +652,29 @@ class TestAnalyzeRepoContributionLimits:
         assert result is None
         assert (progress.resolved, progress.deferred) == (1, 0)
 
+    def test_settled_empty_repo_stays_resolved_for_cache_only_reads(self, monkeypatch):
+        # Requests read cache-only. Without a cached "none", a repo the user
+        # never committed to reads as unmeasured and the user never completes.
+        store = {}
+
+        async def no_shas(*_args, **_kwargs):
+            return []
+
+        async def fake_get(key):
+            return store.get(key)
+
+        async def fake_set(key, value, ttl):
+            store[key] = value
+            return True
+
+        monkeypatch.setattr(attribution, "_list_commit_shas", no_shas)
+        monkeypatch.setattr(attribution.cache, "get_json", fake_get)
+        monkeypatch.setattr(attribution.cache, "set_json", fake_set)
+        self._run(deadline=attribution.Deadline(None))
+        result, progress = self._run(cache_only=True)
+        assert result is None
+        assert (progress.resolved, progress.deferred) == (1, 0)
+
     def _measurable(self, monkeypatch, stored):
         async def fake_shas(*_args, **_kwargs):
             return ["sha1"]

@@ -8,6 +8,8 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
+from core import cache
+from core.jobs import enqueue
 from models.analytics import LanguageData
 from models.commits import CommitDetail
 from models.profile import PinnedRepo
@@ -27,6 +29,14 @@ STAR_HEADERS = {
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 }
+
+
+# How long a complete attribution result exempts a user from queueing.
+COMPLETE_MARKER_TTL_SECONDS = 6 * 60 * 60
+
+
+def _complete_marker(username: str) -> str:
+    return "gh:attr:complete:" + username.lower()
 
 
 def github_headers(token: str) -> Dict[str, str]:
@@ -105,6 +115,12 @@ async def get_attributed_language_stats(
     a user's leading language, so only complete results become a ranking.
     The breakdown endpoint retains partial measurements for refresh progress.
     """
+    # Queue before walking. Listing a large account's repos can use most of
+    # the request budget, and a request cut off by the budget must still leave
+    # the user queued for the scheduled worker (scripts/drain_attribution.py).
+    # Users with a recent complete result skip the queue.
+    marker = _complete_marker(username)
+    queued = False if await cache.get_json(marker) else await enqueue("languages", username)
     stats = await get_user_contributions(
         username,
         token,
@@ -115,6 +131,8 @@ async def get_attributed_language_stats(
         cache_only=cache_only,
     )
     if stats.partial or stats.truncated or (stats.coverage < 1.0 and stats.repos_considered):
+        # A pushed repo can make a once-complete user incomplete again.
+        queued = queued or await enqueue("languages", username)
         raise HTTPException(
             status_code=503,
             detail={
@@ -124,9 +142,11 @@ async def get_attributed_language_stats(
                 "partial": stats.partial,
                 "truncated": stats.truncated,
                 "basis": "authored_additions",
+                "refreshQueued": queued,
             },
             headers={"Cache-Control": "no-store"},
         )
+    await cache.set_json(marker, {"complete": True}, COMPLETE_MARKER_TTL_SECONDS)
     return [
         LanguageData(name=language.name, percentage=language.percentage)
         for language in stats.languages
