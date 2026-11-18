@@ -14,6 +14,7 @@ class GitHubStatsResponse(BaseModel):
     currentStreak: int
     profile_visitors: int = 0
     contributions: Optional[Dict] = None
+    languageStats: Dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def error(cls, status: str, message: str):

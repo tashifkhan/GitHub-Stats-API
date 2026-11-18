@@ -38,7 +38,7 @@ GITHUB_API = "https://api.github.com"
 # v9 adds releases to the default lite response.
 # v10 embeds the first page of releases with releases_page metadata; the rest
 # come from /{owner}/repos/{repo}/releases.
-REPO_DETAILS_CACHE_PREFIX = "repo_details:v10"
+REPO_DETAILS_CACHE_PREFIX = "repo_details:v11"
 RELEASE_PAGE_CACHE_PREFIX = "repo_releases:v1"
 
 # Releases embedded per repo in /repos, and the default page size of the
@@ -507,6 +507,8 @@ def _skeleton_repo_detail(
         user_deletions=contribution.deletions if contribution else 0,
         user_files_changed=contribution.files_changed if contribution else 0,
         user_languages=contribution.languages if contribution else [],
+        user_languages_complete=bool(contribution and not contribution.truncated),
+        user_languages_method=contribution.method if contribution else None,
         contribution_percentage=(
             contribution.contribution_percentage if contribution else None
         ),
@@ -631,6 +633,8 @@ async def fetch_repo_details(
         user_deletions=contribution.deletions if contribution else 0,
         user_files_changed=contribution.files_changed if contribution else 0,
         user_languages=contribution.languages if contribution else [],
+        user_languages_complete=bool(contribution and not contribution.truncated),
+        user_languages_method=contribution.method if contribution else None,
         contribution_percentage=(
             contribution.contribution_percentage if contribution else None
         ),

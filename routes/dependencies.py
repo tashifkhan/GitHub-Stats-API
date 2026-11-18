@@ -5,8 +5,7 @@ from fastapi import Depends, HTTPException
 
 from services.analytics_service import AnalyticsService
 from services.pr_service import PRService
-
-DEFAULT_EXCLUDED_LANGUAGES = ["Markdown", "JSON", "YAML", "XML"]
+from services.language_distribution import DEFAULT_EXCLUDED_LANGUAGES
 
 
 async def get_github_token() -> str:
@@ -34,7 +33,7 @@ def parse_excluded_languages(
     if excluded is not None:
         return [lang.strip() for lang in excluded if lang and lang.strip()]
 
-    if exclude:
+    if exclude is not None:
         return [lang.strip() for lang in exclude.split(",") if lang.strip()]
 
     return list(default or [])

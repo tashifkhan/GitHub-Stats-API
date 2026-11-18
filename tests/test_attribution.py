@@ -489,7 +489,7 @@ class TestAnalyzeRepoContribution:
         assert result.additions == 205299
         assert result.deletions == 77422
         assert result.files_changed == 20
-        assert result.method == "estimated"
+        assert result.method == "sampled"
         assert result.truncated is True
         assert [(item.name, item.percentage) for item in result.languages] == [
             ("Python", 80.0),
@@ -502,9 +502,9 @@ class TestAnalyzeRepoContribution:
             return 0
 
         monkeypatch.setattr(attribution, "_count_user_commits", fake_count)
-        assert self._run(FakeClient({})) is None
+        assert self._run(FakeClient({"/commits": FakeResponse(payload=[])})) is None
 
-    def test_scales_sampled_mix_to_true_totals_when_truncated(self, monkeypatch):
+    def test_sampled_lines_are_not_extrapolated_to_lifetime_totals(self, monkeypatch):
         async def fake_count(*_args, **_kwargs):
             return 500
 
@@ -530,10 +530,10 @@ class TestAnalyzeRepoContribution:
         result = self._run(FakeClient({}), budget_size=10)
 
         assert result.truncated is True
-        assert result.method == "estimated"
+        assert result.method == "sampled"
         assert result.commits == 500
         assert result.additions == 5000
-        assert result.languages[0].lines == 5000
+        assert result.languages[0].lines == 100
 
     def test_never_uses_whole_repo_languages_without_diffs(self, monkeypatch):
         async def fake_count(*_args, **_kwargs):
@@ -649,6 +649,29 @@ class TestAnalyzeRepoContributionLimits:
 
         monkeypatch.setattr(attribution, "_list_commit_shas", no_shas)
         result, progress = self._run()
+        assert result is None
+        assert (progress.resolved, progress.deferred) == (1, 0)
+
+    def test_settled_empty_repo_stays_resolved_for_cache_only_reads(self, monkeypatch):
+        # Requests read cache-only. Without a cached "none", a repo the user
+        # never committed to reads as unmeasured and the user never completes.
+        store = {}
+
+        async def no_shas(*_args, **_kwargs):
+            return []
+
+        async def fake_get(key):
+            return store.get(key)
+
+        async def fake_set(key, value, ttl):
+            store[key] = value
+            return True
+
+        monkeypatch.setattr(attribution, "_list_commit_shas", no_shas)
+        monkeypatch.setattr(attribution.cache, "get_json", fake_get)
+        monkeypatch.setattr(attribution.cache, "set_json", fake_set)
+        self._run(deadline=attribution.Deadline(None))
+        result, progress = self._run(cache_only=True)
         assert result is None
         assert (progress.resolved, progress.deferred) == (1, 0)
 

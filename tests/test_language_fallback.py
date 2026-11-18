@@ -1,6 +1,7 @@
 """Attributed language stats must never include somebody else's code."""
 
 import asyncio
+import pytest
 
 from fastapi import HTTPException
 
@@ -56,7 +57,11 @@ class TestStrictOwnCommitAttribution:
     def test_thin_coverage_still_never_serves_whole_repo_data(self, monkeypatch):
         stubbed = _stub(monkeypatch)
         stubbed["walk"] = _walk(0.2)
-        assert [l.name for l in _run()] == ["Rust"]
+        with pytest.raises(HTTPException) as error:
+            _run()
+        assert error.value.status_code == 503
+        assert error.value.detail["coverage"] == 0.2
+        assert error.value.headers["Cache-Control"] == "no-store"
         assert stubbed["legacy_called"] is False
 
     def test_no_measured_languages_returns_empty_instead_of_repo_mix(self, monkeypatch):

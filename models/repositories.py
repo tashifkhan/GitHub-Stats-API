@@ -77,5 +77,7 @@ class RepoDetail(BaseModel):
     user_deletions: int = 0
     user_files_changed: int = 0
     user_languages: List[LanguageContribution] = Field(default_factory=list)
+    user_languages_complete: bool = False
+    user_languages_method: Optional[str] = None
     # The user's share of the repo's total line additions, 0-100.
     contribution_percentage: Optional[float] = None

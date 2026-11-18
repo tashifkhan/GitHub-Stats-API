@@ -72,7 +72,7 @@ def stats_from(
     if stats_response is None:
         return Stats()
     topics = [
-        TopicCount(topic=lang.name, count=int(round(lang.percentage)))
+        TopicCount(topic=lang.name, count=lang.percentage)
         for lang in (stats_response.topLanguages or [])
     ]
     commits = stats_response.totalCommits or 0
@@ -172,7 +172,7 @@ async def build_card(username: str, analytics_service) -> Card:
     user, social_accounts, stats, pr_count, issue_count, review_count, achievements = await asyncio.gather(
         analytics_service.get_user_profile(username),
         analytics_service.get_user_social_accounts(username),
-        analytics_service.get_user_stats(username, []),
+        analytics_service.get_user_stats(username, None),
         analytics_service.get_user_pr_count(username),
         analytics_service.get_user_issue_count(username),
         analytics_service.get_user_review_count(username),

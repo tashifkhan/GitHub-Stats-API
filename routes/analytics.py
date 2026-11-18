@@ -33,12 +33,11 @@ analytics_router = APIRouter()
     - Code written by other contributors in the user's own repos is ignored
     - Vendored paths (`node_modules`, `dist`, lockfiles, minified bundles) are skipped
 
-    Measuring commit diffs cannot finish inside one request, so the walk is
-    time-boxed and its per-repo results are cached. A cold cache may therefore
-    produce a partial or empty own-commit split, but attributed mode never
-    substitutes whole-repository languages. Warm the cache with
-    `scripts/warm_attribution.py`, or hit
-    `/{username}/contributions/breakdown` repeatedly.
+    Rankings use complete cached measurements. Incomplete attribution returns
+    503 with `language_attribution_pending` and coverage, rather than a partial
+    sample normalized to 100%. The default excludes Markdown, JSON, YAML and
+    XML on languages, stats and SVG routes. Pass `exclude=` to include all.
+    The offline warmer and breakdown endpoint perform refresh work.
     """,
     response_description="List of top programming languages with usage percentages",
     responses={
@@ -62,6 +61,7 @@ analytics_router = APIRouter()
 )
 async def get_user_language_stats(
     username: str,
+    response: Response,
     exclude: Optional[str] = Query(
         None,
         description="Comma-separated list of languages to exclude (preferred)",
@@ -88,12 +88,15 @@ async def get_user_language_stats(
         excluded=excluded,
         default=DEFAULT_EXCLUDED_LANGUAGES,
     )
-    return await analytics_service.get_user_language_stats(
+    result = await analytics_service.get_user_language_stats(
         username,
         excluded_languages,
         attributed=attributed,
         include_forks=include_forks,
     )
+    response.headers["X-Language-Basis"] = "authored_additions" if attributed else "repository_bytes"
+    response.headers["X-Language-Status"] = "complete"
+    return result
 
 
 @analytics_router.get(
@@ -107,7 +110,7 @@ async def get_user_language_stats(
     For each repository it reports the user's commit count, lines added and
     removed, files touched, their language mix, and their share of the repo's
     total additions. `method` is `commits` when measured from real commit diffs,
-    `estimated` when the commit budget forced a sampled own-commit language mix,
+    `sampled` when the commit budget forced a sampled own-commit language mix,
     or `contributor_stats` when exact user totals were available but commit diffs
     were not, in which case no language mix is invented from the entire repo.
 
@@ -115,7 +118,8 @@ async def get_user_language_stats(
     deadline and caches it. `coverage` is the fraction of eligible repos settled
     and `partial` is true when the deadline stopped the walk early -- call again
     to pick up where it left off, or pre-warm with `scripts/warm_attribution.py`.
-    Cached repos are re-measured only after they are pushed to again.
+    Only complete measurements are cached. Sampled line counts describe the
+    measured commits and are never scaled to lifetime contributor totals.
     """,
     responses={
         200: {
@@ -174,6 +178,7 @@ async def get_user_language_stats(
     },
 )
 async def get_user_contribution_breakdown(
+    response: Response,
     username: str = Path(..., description="GitHub username"),
     exclude: Optional[str] = Query(
         None,
@@ -194,6 +199,9 @@ async def get_user_contribution_breakdown(
         excluded=excluded,
         default=DEFAULT_EXCLUDED_LANGUAGES,
     )
+    # This route advances refresh progress. A cached response would prevent
+    # later calls from continuing the scan.
+    response.headers["Cache-Control"] = "no-store"
     return await analytics_service.get_user_contribution_breakdown(
         username, excluded_languages, include_forks=include_forks
     )
@@ -623,7 +631,7 @@ async def get_profile_views_count(
     summary="Stats SVG card",
     description=(
         "Embeddable SVG card of commit totals, stars, streaks, and language topics. "
-        "Use `exclude` to omit languages (comma-separated). Cached for 24 hours."
+        "Use `exclude` to omit languages. Incomplete language data is labeled pending."
     ),
     responses={200: {"content": {"image/svg+xml": {}}}},
 )
@@ -647,7 +655,7 @@ async def get_user_stats_svg(
     excluded_list = parse_excluded_languages(
         exclude=exclude,
         excluded=excluded,
-        default=[],
+        default=DEFAULT_EXCLUDED_LANGUAGES,
     )
     stats = await analytics_service.get_user_stats(
         username, excluded_list, attributed=attributed
@@ -662,8 +670,9 @@ async def get_user_stats_svg(
         "totalStars": total_stars,
         "currentStreak": stats.currentStreak,
         "longestStreak": stats.longestStreak,
+        "languageStatus": stats.languageStats.get("status", "complete"),
     }
-    return stats_svg_response(
+    result = stats_svg_response(
         "github",
         username,
         data,
@@ -671,6 +680,13 @@ async def get_user_stats_svg(
         exclude=excluded_list,
         extras=extras,
     )
+    language_status = stats.languageStats.get("status", "complete")
+    result.headers["X-Language-Status"] = language_status
+    result.headers["X-Language-Basis"] = stats.languageStats.get("basis", "authored_additions")
+    result.headers["Cache-Control"] = (
+        "no-store" if language_status != "complete" else "public, max-age=3600"
+    )
+    return result
 
 
 @analytics_router.get(
@@ -754,6 +770,7 @@ async def get_user_stats_svg(
     },
 )
 async def get_user_stats(
+    response: Response,
     username: str = Path(..., description="GitHub username"),
     exclude: Optional[str] = Query(
         None,
@@ -772,13 +789,15 @@ async def get_user_stats(
     excluded_list = parse_excluded_languages(
         exclude=exclude,
         excluded=excluded,
-        default=[],
+        default=DEFAULT_EXCLUDED_LANGUAGES,
     )
 
     stats = await analytics_service.get_user_stats(
         username, excluded_list, attributed=attributed
     )
     data = canonical_mapper.stats_from(stats)
+    if stats.languageStats.get("status") != "complete":
+        response.headers["Cache-Control"] = "no-store"
     return make_envelope(username, data, legacy=stats)
 
 
