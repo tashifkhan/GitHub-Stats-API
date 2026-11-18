@@ -8,12 +8,14 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from models.analytics import LanguageData
 from models.commits import CommitDetail
 from models.profile import PinnedRepo
 from models.pull_requests import OrganizationContribution, PullRequestDetail
 from models.repositories import Contributor, ReleaseAsset, RepoDetail, RepoRelease
 from models.stars import StarredList, StarsData
+from services.client import raise_for_github_status
 
 BASE_GITHUB_URL = "https://github.com"
 GITHUB_API = "https://api.github.com"
@@ -49,7 +51,9 @@ async def get_user_pull_requests(username: str, token: str) -> List[PullRequestD
     that N+1 approach could take 30+ seconds for users with many repos and would
     routinely blow past serverless function time limits.
     """
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(
+        timeout=20.0, event_hooks=GITHUB_RESPONSE_HOOKS
+    ) as client:
         pull_requests: List[PullRequestDetail] = []
         per_page = 100
         page = 1
@@ -72,7 +76,7 @@ async def get_user_pull_requests(username: str, token: str) -> List[PullRequestD
                             raise HTTPException(
                                 status_code=404, detail="User not found"
                             )
-                    raise HTTPException(status_code=502, detail="GitHub API error")
+                    raise_for_github_status(resp, username)
                 checked_user = True
                 data = resp.json()
                 items = data.get("items", [])
@@ -126,7 +130,7 @@ async def get_organization_contributions(
     Find all organizations where the user has contributed (via merged PRs), regardless of membership.
     Uses the GitHub Search API to find all merged PRs by the user, then groups repos by organization.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         per_page = 100
         page = 1
         org_repo_map = {}
@@ -135,7 +139,7 @@ async def get_organization_contributions(
             search_url = f"{GITHUB_API}/search/issues?q=type:pr+author:{username}+is:merged&per_page={per_page}&page={page}"
             resp = await client.get(search_url, headers=github_headers(token))
             if resp.status_code != 200:
-                break
+                raise_for_github_status(resp, username)
             data = resp.json()
             items = data.get("items", [])
             if not items:
@@ -188,14 +192,13 @@ async def get_organization_contributions(
 async def _search_count(query: str, token: str) -> int:
     """Return total_count from GitHub search API for a given query string."""
     url = f"{GITHUB_API}/search/issues?q={query}&per_page=1"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url, headers=github_headers(token))
-            if resp.status_code == 200:
-                return resp.json().get("total_count", 0)
-        except Exception:
-            pass
-    return 0
+    async with httpx.AsyncClient(
+        timeout=10.0, event_hooks=GITHUB_RESPONSE_HOOKS
+    ) as client:
+        resp = await client.get(url, headers=github_headers(token))
+        if resp.status_code != 200:
+            raise_for_github_status(resp, query)
+        return resp.json().get("total_count", 0)
 
 
 async def get_user_pr_count(username: str, token: str) -> int:

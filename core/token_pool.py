@@ -100,19 +100,26 @@ class TokenPool:
     def __len__(self) -> int:
         return len(self._states)
 
-    def acquire(self, *, min_remaining: int = 0) -> str:
+    def acquire(
+        self,
+        *,
+        min_remaining: int = 0,
+        exclude: Optional[Iterable[str]] = None,
+    ) -> str:
         """Return the first healthy token, or raise ``NoTokenAvailable``.
 
         ``min_remaining`` lets a long-running worker skip a token that is
         technically usable but already below its safety floor, falling through
-        to the next account instead of stopping the whole run.
+        to the next account instead of stopping the whole run. ``exclude``
+        prevents a retry loop from selecting an account that just failed.
         """
         now = self._clock()
         soonest_reset: Optional[float] = None
+        skipped = set(exclude or ())
 
         with self._lock:
             for state in self._states:
-                if state.disabled:
+                if state.disabled or state.token in skipped:
                     continue
 
                 if state.reset_at and state.reset_at <= now:
@@ -158,9 +165,19 @@ class TokenPool:
             return None
 
     def observe(self, token: str, status_code: int, headers: Mapping[str, str]) -> None:
-        """Update a token's balance from one GitHub response."""
+        """Update a token's REST balance from one GitHub response.
+
+        GraphQL and search have their own hourly buckets, reported under a
+        different ``x-ratelimit-resource``. Letting them write the REST balance
+        either revives an exhausted core token or parks a healthy one, so only
+        core REST responses are recorded here.
+        """
         state = self._by_token.get(token)
         if state is None:
+            return
+
+        resource = (headers.get("x-ratelimit-resource") or "core").strip().lower()
+        if resource != "core":
             return
 
         remaining = _as_int(headers.get("x-ratelimit-remaining"))
@@ -170,6 +187,9 @@ class TokenPool:
         now = self._clock()
 
         with self._lock:
+            previous_remaining = state.remaining
+            previous_reset = state.reset_at
+
             if limit is not None and limit > 0:
                 state.limit = limit
                 if state.remaining is None:
@@ -177,7 +197,21 @@ class TokenPool:
             if reset is not None and reset > 0:
                 state.reset_at = float(reset)
             if remaining is not None:
-                state.remaining = remaining
+                # Responses can land out of order. A success from the window
+                # that just ran out must not make its token look usable again.
+                same_window = (
+                    reset is None
+                    or previous_reset == 0
+                    or float(reset) <= previous_reset
+                )
+                stale_success = (
+                    previous_remaining == 0
+                    and remaining > 0
+                    and same_window
+                    and state.reset_at > now
+                )
+                if not stale_success:
+                    state.remaining = remaining
 
             if status_code == 401:
                 state.disabled = True
@@ -197,8 +231,9 @@ class TokenPool:
                     state.cooldown_until,
                     now + (retry_after or DEFAULT_COOLDOWN_SECONDS),
                 )
-            elif remaining is not None and remaining > 0:
-                state.cooldown_until = 0.0
+            # Never clear cooldown_until on a successful response. It may have
+            # been in flight before GitHub applied the secondary limit, and
+            # the cooldown expires on its own.
 
     def observe_response(self, response) -> None:
         """httpx response hook: learn from whichever token made the call."""
