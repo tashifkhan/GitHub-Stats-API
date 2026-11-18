@@ -54,11 +54,12 @@ def make_handler(token, pass_seconds, log=print, max_pass_seconds=None, time_lef
     """
     max_pass_seconds = max_pass_seconds or pass_seconds
 
-    def next_token():
+    def next_token(exclude=()):
         if token:
             return token
         return get_token_pool().acquire(
-            min_remaining=attribution_settings.rate_limit_floor
+            min_remaining=attribution_settings.rate_limit_floor,
+            exclude=exclude,
         )
 
     async def handle(job):
@@ -66,10 +67,7 @@ def make_handler(token, pass_seconds, log=print, max_pass_seconds=None, time_lef
         planned = float(job.data.get("passSeconds", pass_seconds))
         limit = min(planned, max_pass_seconds, time_left() if time_left else planned)
         started = time.monotonic()
-        try:
-            active = next_token()
-        except NoTokenAvailable as exc:
-            raise QuotaExhausted(username) from exc
+        tried: set[str] = set()
 
         async def walk(active_token, seconds):
             return await get_user_contributions(
@@ -79,34 +77,39 @@ def make_handler(token, pass_seconds, log=print, max_pass_seconds=None, time_lef
                 deadline_seconds=seconds,
             )
 
-        try:
-            stats = await walk(active, limit)
-        except HTTPException as exc:
-            if exc.status_code != 503 or token:
-                raise
-            # GitHub refused the very first call: the pool has now seen the
-            # 403, so try the next account below.
-            stats = None
+        stats = None
+        while True:
+            try:
+                active = next_token(tried)
+            except NoTokenAvailable as exc:
+                raise QuotaExhausted(username) from exc
+            first_attempt = not tried
+            tried.add(active)
 
-        if not token and (stats is None or stats.status == "rate_limited"):
-            # The guard stops at the floor, not at zero, so this token may still
-            # have calls left. Another account with real headroom is a better
-            # use of the remaining pass than ending the whole drain.
-            left = max(1.0, limit - (time.monotonic() - started))
+            left = (
+                limit
+                if first_attempt
+                else max(1.0, limit - (time.monotonic() - started))
+            )
             try:
-                fallback = get_token_pool().acquire(
-                    min_remaining=attribution_settings.rate_limit_floor
-                )
-            except NoTokenAvailable:
-                raise QuotaExhausted(username)
-            if fallback == active:
-                raise QuotaExhausted(username)
-            try:
-                stats = await walk(fallback, left)
+                stats = await walk(active, left)
             except HTTPException as exc:
-                if exc.status_code == 503:
+                # A rejected or throttled account has already been recorded by
+                # the response hook. Try the rest of the pool before giving up.
+                if token or exc.status_code not in (401, 403, 502, 503):
+                    raise
+                if time.monotonic() - started >= limit:
                     raise QuotaExhausted(username) from exc
-                raise
+                continue
+
+            if token or stats.status != "rate_limited":
+                break
+            # The guard stops at the floor, not at zero, so this token may
+            # still have calls left. Another account with real headroom is a
+            # better use of the remaining pass than ending the whole drain.
+            if time.monotonic() - started >= limit:
+                raise QuotaExhausted(username)
+
         log(
             f"{username}: {stats.status}, coverage {stats.coverage:.0%} "
             f"({stats.repos_analyzed}/{stats.repos_considered} repos) "

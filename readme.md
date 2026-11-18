@@ -301,9 +301,10 @@ To run this project locally, follow these steps:
     GITHUB_TOKENS=first_token_here,second_token_here
     ```
 
-    Each token has its own 5,000 requests/hour allowance. The pool uses the
-    first healthy token and fails over when one is exhausted, cooling down
-    after a secondary limit, or rejected. Tokens are identified in logs by an
+    Each account's token has its own 5,000 requests/hour allowance; several
+    PATs belonging to the same account share one. The pool uses the first
+    healthy token and fails over when one is exhausted, cooling down after a
+    secondary limit, or rejected. Tokens are identified in logs by an
     eight-character digest, never printed. Prefer fine-grained tokens limited
     to public repository read access; a classic token with `repo` scope can
     read private repositories too.

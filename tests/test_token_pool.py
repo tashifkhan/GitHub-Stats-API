@@ -205,3 +205,117 @@ def test_dependency_turns_an_empty_pool_into_503_with_retry_after():
         assert exc.value.headers["Retry-After"] == "45"
     finally:
         reset_token_pool(None)
+
+
+def test_graphql_balance_does_not_overwrite_rest():
+    clock = Clock()
+    tokens = pool("a", "b", clock=clock)
+    reset = str(int(clock.now) + 120)
+    tokens.observe(
+        "a",
+        200,
+        {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": reset,
+        },
+    )
+    tokens.observe(
+        "a",
+        200,
+        {
+            "x-ratelimit-resource": "graphql",
+            "x-ratelimit-remaining": "4999",
+            "x-ratelimit-reset": reset,
+        },
+    )
+
+    assert tokens.snapshot()[0]["remaining"] == 0
+    assert tokens.acquire() == "b"
+
+
+def test_search_balance_does_not_overwrite_rest():
+    clock = Clock()
+    tokens = pool("a", "b", clock=clock)
+    reset = str(int(clock.now) + 120)
+    tokens.observe(
+        "a",
+        200,
+        {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": reset,
+        },
+    )
+    tokens.observe(
+        "a",
+        200,
+        {
+            "x-ratelimit-resource": "search",
+            "x-ratelimit-remaining": "29",
+            "x-ratelimit-reset": str(int(clock.now) + 60),
+        },
+    )
+
+    assert tokens.snapshot()[0]["remaining"] == 0
+    assert tokens.acquire() == "b"
+
+
+def test_late_success_does_not_revive_an_exhausted_window():
+    clock = Clock()
+    tokens = pool("a", "b", clock=clock)
+    reset = str(int(clock.now) + 120)
+    tokens.observe(
+        "a",
+        403,
+        {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": reset,
+        },
+    )
+    tokens.observe(
+        "a",
+        200,
+        {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-remaining": "1",
+            "x-ratelimit-reset": reset,
+        },
+    )
+
+    assert tokens.snapshot()[0]["remaining"] == 0
+    assert tokens.acquire() == "b"
+
+
+def test_success_does_not_cancel_a_secondary_limit_cooldown():
+    clock = Clock()
+    tokens = pool("a", "b", clock=clock)
+    tokens.observe(
+        "a",
+        403,
+        {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-remaining": "4000",
+            "retry-after": "30",
+        },
+    )
+    assert tokens.acquire() == "b"
+
+    tokens.observe(
+        "a",
+        200,
+        {"x-ratelimit-resource": "core", "x-ratelimit-remaining": "3900"},
+    )
+    assert tokens.acquire() == "b"
+
+    clock.advance(31)
+    assert tokens.acquire() == "a"
+
+
+def test_acquire_can_exclude_tokens_already_tried():
+    tokens = pool("a", "b")
+
+    assert tokens.acquire(exclude={"a"}) == "b"
+    with pytest.raises(NoTokenAvailable):
+        tokens.acquire(exclude={"a", "b"})
