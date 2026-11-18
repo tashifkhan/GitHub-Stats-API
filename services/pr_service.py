@@ -2,7 +2,9 @@ from typing import List
 
 import httpx
 
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from models.pull_requests import OrganizationContribution, PullRequestDetail
+from services.client import raise_for_github_status
 from services.pull_requests import (
     get_organization_contributions as fetch_organization_contributions,
     get_user_pull_requests as fetch_user_pull_requests,
@@ -26,7 +28,7 @@ class PRService:
         per_page = 100
         page = 1
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
             while True:
                 search_url = (
                     "https://api.github.com/search/issues"
@@ -40,7 +42,7 @@ class PRService:
                     },
                 )
                 if resp.status_code != 200:
-                    break
+                    raise_for_github_status(resp, username)
 
                 data = resp.json()
                 items = data.get("items", [])

@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 import core.jobs as jobs
+from core.token_pool import TokenPool
 from models.attribution import ContributionLanguageStats
 from services import languages
 
@@ -100,6 +101,62 @@ def test_worker_marks_a_finished_user(monkeypatch):
     job = type("Job", (), {"payload": {"subject": "taf"}, "data": {}})()
     assert asyncio.run(handler(job)) is True
     assert languages._complete_marker("taf") in store.data
+
+
+def test_worker_tries_every_account_in_the_pool(monkeypatch):
+    calls = []
+
+    async def walk(username, token, **kwargs):
+        calls.append(token)
+        if token == "c":
+            return ContributionLanguageStats(
+                username="taf",
+                repos_considered=4,
+                coverage=1.0,
+                status="complete",
+            )
+        return ContributionLanguageStats(
+            username="taf",
+            repos_considered=4,
+            coverage=0.25,
+            partial=True,
+            status="rate_limited",
+        )
+
+    pool = TokenPool(["a", "b", "c"])
+    monkeypatch.setattr(drain_attribution, "get_user_contributions", walk)
+    monkeypatch.setattr(drain_attribution, "get_token_pool", lambda: pool)
+
+    handler = drain_attribution.make_handler(None, 60, log=lambda *_: None)
+    job = type("Job", (), {"payload": {"subject": "taf"}, "data": {}})()
+
+    assert asyncio.run(handler(job)) is True
+    assert calls == ["a", "b", "c"]
+
+
+def test_worker_stops_after_the_whole_pool_is_spent(monkeypatch):
+    calls = []
+
+    async def walk(username, token, **kwargs):
+        calls.append(token)
+        return ContributionLanguageStats(
+            username="taf",
+            repos_considered=4,
+            coverage=0.25,
+            partial=True,
+            status="rate_limited",
+        )
+
+    pool = TokenPool(["a", "b", "c"])
+    monkeypatch.setattr(drain_attribution, "get_user_contributions", walk)
+    monkeypatch.setattr(drain_attribution, "get_token_pool", lambda: pool)
+
+    handler = drain_attribution.make_handler(None, 60, log=lambda *_: None)
+    job = type("Job", (), {"payload": {"subject": "taf"}, "data": {}})()
+
+    with pytest.raises(drain_attribution.QuotaExhausted):
+        asyncio.run(handler(job))
+    assert calls == ["a", "b", "c"]
 
 
 def test_claim_lease_outlives_the_handler_timeout(monkeypatch):
