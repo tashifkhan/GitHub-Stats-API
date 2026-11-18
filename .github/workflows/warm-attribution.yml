@@ -41,6 +41,10 @@ jobs:
       # repo fits in one pass.
       ATTRIBUTION_MAX_COMMITS_PER_REPO: "3000"
       ATTRIBUTION_MAX_COMMIT_DETAILS: "3000"
+      # The token shares its 5000/hour REST quota with the live API. Stopping
+      # at 2500 leaves the API at least half, even when in-flight requests
+      # overshoot the floor.
+      ATTRIBUTION_RATE_LIMIT_FLOOR: "2500"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

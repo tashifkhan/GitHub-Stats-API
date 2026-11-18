@@ -47,3 +47,15 @@ class StoreRegressionTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_request_budget_reads_env(monkeypatch):
+    from core import runtime
+
+    monkeypatch.delenv("REQUEST_BUDGET_SECONDS", raising=False)
+    assert runtime.RequestBudgetMiddleware(None).seconds == runtime.DEFAULT_BUDGET_SECONDS
+    monkeypatch.setenv("REQUEST_BUDGET_SECONDS", "12")
+    assert runtime.RequestBudgetMiddleware(None).seconds == 12.0
+    monkeypatch.setenv("REQUEST_BUDGET_SECONDS", "junk")
+    assert runtime.RequestBudgetMiddleware(None).seconds == runtime.DEFAULT_BUDGET_SECONDS
+    assert runtime.RequestBudgetMiddleware(None, seconds=3).seconds == 3
