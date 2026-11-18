@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -48,9 +49,22 @@ async def once(key, producer):
     return await current.tasks[key]
 
 
+# Cold profile and repo routes need 10-14s before their first cached response.
+# The function limit on this project is above that, so the budget sits under it
+# rather than under the 10s that other Stats APIs run with.
+DEFAULT_BUDGET_SECONDS = 25.0
+
+
+def budget_seconds():
+    try:
+        return float(os.environ.get("REQUEST_BUDGET_SECONDS", DEFAULT_BUDGET_SECONDS))
+    except ValueError:
+        return DEFAULT_BUDGET_SECONDS
+
+
 class RequestBudgetMiddleware:
-    def __init__(self, app, seconds=8.0):
-        self.app, self.seconds = app, seconds
+    def __init__(self, app, seconds=None):
+        self.app, self.seconds = app, seconds if seconds is not None else budget_seconds()
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
