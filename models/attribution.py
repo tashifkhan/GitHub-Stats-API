@@ -32,8 +32,8 @@ class RepoContribution(BaseModel):
     # 0-100. ``None`` when GitHub could not supply contributor stats.
     contribution_percentage: Optional[float] = None
 
-    # "commits" when measured from real commit diffs, "estimated" when the
-    # user's own commits were sampled, or "contributor_stats" when exact user
+    # "commits" when measured from real commit diffs, "sampled" when only
+    # some own commits were measured, or "contributor_stats" when exact user
     # totals were available but no honest per-language split could be derived.
     method: str = "commits"
 

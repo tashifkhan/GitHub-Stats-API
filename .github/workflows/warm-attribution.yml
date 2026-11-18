@@ -1,0 +1,53 @@
+name: Warm language attribution
+
+# Measures authored-language attribution for users the API has queued.
+# /languages, /stats and the stats SVG return "pending" and queue the user until
+# this has measured every repo, so it must run for those routes to fill in.
+#
+# Repository secrets:
+#   ATTRIBUTION_GITHUB_TOKEN   PAT used for measurement. A separate token keeps
+#                              this job from spending the API's hourly quota.
+#   UPSTASH_REDIS_REST_URL     Same store the Vercel deployment uses.
+#   UPSTASH_REDIS_REST_TOKEN
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Space-separated usernames to queue first
+        required: false
+        default: ""
+
+concurrency:
+  group: warm-attribution
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      GITHUB_TOKEN: ${{ secrets.ATTRIBUTION_GITHUB_TOKEN }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      REFRESH_WORKER_ENABLED: "true"
+      # Requests cap a repo at 200 commits. Anything over that is marked
+      # truncated and never cached, so the worker lifts the caps until a large
+      # repo fits in one pass.
+      ATTRIBUTION_MAX_COMMITS_PER_REPO: "3000"
+      ATTRIBUTION_MAX_COMMIT_DETAILS: "3000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --no-dev
+      - name: Drain the attribution queue
+        env:
+          SEED: ${{ inputs.seed }}
+        # $SEED is split into usernames on purpose. It never reaches the shell
+        # as code, because it's passed through env rather than interpolated.
+        run: uv run python scripts/drain_attribution.py --minutes 11 --pass-seconds 90 --seed $SEED

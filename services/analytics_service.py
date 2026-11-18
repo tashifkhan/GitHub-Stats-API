@@ -35,6 +35,7 @@ from services.stars import (
     get_user_stars_data,
 )
 from services.profile_views_service import get_profile_views, increment_profile_views
+from services.language_distribution import DEFAULT_EXCLUDED_LANGUAGES
 
 
 class AnalyticsService:
@@ -49,8 +50,8 @@ class AnalyticsService:
         include_forks: bool = True,
     ) -> List[LanguageData]:
         if attributed:
-            # Bounded so this endpoint cannot outlive the function timeout; it
-            # returns only the own-commit portion measured or cached so far.
+            # Public rankings read complete cached attribution. Refresh work
+            # belongs to the breakdown endpoint or the offline warmer.
             return await get_attributed_language_stats(
                 username,
                 self.token,
@@ -58,7 +59,9 @@ class AnalyticsService:
                 include_forks=include_forks,
                 deadline_seconds=attribution_settings.inline_deadline_seconds,
             )
-        return await get_language_stats(username, self.token, excluded_languages)
+        return await get_language_stats(
+            username, self.token, excluded_languages, include_forks=include_forks
+        )
 
     async def get_user_contribution_breakdown(
         self,
@@ -167,9 +170,11 @@ class AnalyticsService:
     async def get_user_stats(
         self,
         username: str,
-        excluded_languages: List[str],
+        excluded_languages: Optional[List[str]],
         attributed: bool = True,
     ) -> GitHubStatsResponse:
+        if excluded_languages is None:
+            excluded_languages = list(DEFAULT_EXCLUDED_LANGUAGES)
         # The contribution graph and the language walk hit different APIs and
         # neither needs the other's result, so they run together; in sequence
         # their combined latency overran the function timeout.
@@ -192,6 +197,19 @@ class AnalyticsService:
                 )
             raise contribution_result
 
+        language_metadata = {
+            "status": "complete",
+            "basis": "authored_additions" if attributed else "repository_bytes",
+            "excluded": excluded_languages,
+        }
+        if (
+            isinstance(language_result, HTTPException)
+            and isinstance(language_result.detail, dict)
+            and language_result.detail.get("code") == "language_attribution_pending"
+        ):
+            language_metadata.update(language_result.detail)
+            language_metadata["status"] = "pending"
+            language_result = []
         if isinstance(language_result, BaseException):
             if (
                 isinstance(language_result, HTTPException)
@@ -215,6 +233,7 @@ class AnalyticsService:
             currentStreak=calculate_current_streak(contribution_data),
             profile_visitors=await get_profile_views(username),
             contributions=contribution_data,
+            languageStats=language_metadata,
         )
 
     async def get_user_star_lists(self, username: str, include_repos: bool):
