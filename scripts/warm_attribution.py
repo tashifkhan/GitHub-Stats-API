@@ -9,8 +9,9 @@ answer is ready before anyone asks for it.
     python scripts/warm_attribution.py tashifkhan
     python scripts/warm_attribution.py tashifkhan someone-else --passes 6
 
-Needs GITHUB_TOKEN and REDIS_URL in the environment; without Redis there is no
-cache to warm and the script says so rather than burning API calls for nothing.
+Needs GITHUB_TOKENS (or the older single GITHUB_TOKEN) and REDIS_URL in the
+environment; without Redis there is no cache to warm and the script says so
+rather than burning API calls for nothing.
 
 Each pass measures whichever repos are still uncached and stops at the deadline,
 so several passes walk steadily through a large account. Re-running is cheap:
@@ -32,6 +33,7 @@ load_dotenv(".env.local")
 
 from core import cache  # noqa: E402
 from core.config import attribution_settings  # noqa: E402
+from core.token_pool import get_token_pool  # noqa: E402
 from services.attribution import get_user_contributions  # noqa: E402
 
 
@@ -80,9 +82,8 @@ async def main() -> int:
     )
     args = parser.parse_args()
 
-    token = os.getenv("GITHUB_TOKEN", "")
-    if not token:
-        print("GITHUB_TOKEN is not set", file=sys.stderr)
+    if not get_token_pool().configured:
+        print("GITHUB_TOKENS (or GITHUB_TOKEN) is not set", file=sys.stderr)
         return 1
 
     if not cache.redis_enabled():
@@ -102,6 +103,9 @@ async def main() -> int:
     for username in args.usernames:
         print(f"\n{username}:")
         try:
+            token = get_token_pool().acquire(
+                min_remaining=attribution_settings.rate_limit_floor
+            )
             if await warm(username, token, args.passes, args.deadline):
                 complete += 1
         except Exception as exc:  # keep going through the rest of the list

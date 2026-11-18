@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -49,7 +51,7 @@ def github_headers(token: str) -> Dict[str, str]:
 async def get_language_stats(
     username: str, token: str, excluded_languages: List[str], include_forks: bool = True
 ) -> List[LanguageData]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         repos, _ = await list_user_repositories(
             client, username, token, sort="updated", repo_type="all"
         )

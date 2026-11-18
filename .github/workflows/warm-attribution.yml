@@ -5,8 +5,10 @@ name: Warm language attribution
 # this has measured every repo, so it must run for those routes to fill in.
 #
 # Repository secrets:
-#   ATTRIBUTION_GITHUB_TOKEN   PAT used for measurement. A separate token keeps
-#                              this job from spending the API's hourly quota.
+#   ATTRIBUTION_GITHUB_TOKENS  Comma-separated PATs used for measurement, in
+#                              preference order. Separate accounts keep this job
+#                              from spending the API's hourly quota.
+#   ATTRIBUTION_GITHUB_TOKEN   Legacy single-token fallback.
 #   UPSTASH_REDIS_REST_URL     Same store the Vercel deployment uses.
 #   UPSTASH_REDIS_REST_TOKEN
 
@@ -32,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14
     env:
-      GITHUB_TOKEN: ${{ secrets.ATTRIBUTION_GITHUB_TOKEN }}
+      GITHUB_TOKENS: ${{ secrets.ATTRIBUTION_GITHUB_TOKENS || secrets.ATTRIBUTION_GITHUB_TOKEN }}
       UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
       UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
       REFRESH_WORKER_ENABLED: "true"
@@ -41,9 +43,9 @@ jobs:
       # repo fits in one pass.
       ATTRIBUTION_MAX_COMMITS_PER_REPO: "3000"
       ATTRIBUTION_MAX_COMMIT_DETAILS: "3000"
-      # The token shares its 5000/hour REST quota with the live API. Stopping
-      # at 2500 leaves the API at least half, even when in-flight requests
-      # overshoot the floor.
+      # The worker starts on its own account. If that account reaches this
+      # floor, the token pool moves to the next one instead of draining the
+      # API's first-choice token. In-flight requests can overshoot slightly.
       ATTRIBUTION_RATE_LIMIT_FLOOR: "2500"
     steps:
       - uses: actions/checkout@v4

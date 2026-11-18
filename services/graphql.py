@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -33,7 +35,7 @@ def github_headers(token: str) -> Dict[str, str]:
 
 
 async def execute_graphql_query(query: str, token: str) -> Dict:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         response = await _execute_graphql_query_with_client(client, query, token)
         return response.json()
 

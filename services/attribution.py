@@ -32,6 +32,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from fastapi import HTTPException
 
 from core import cache
@@ -870,7 +872,10 @@ async def get_user_contributions(
     cached. Either way the result says how many repos it covered, so callers
     can decide whether the language mix is representative enough to serve.
     """
-    async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        event_hooks=GITHUB_RESPONSE_HOOKS,
+        timeout=settings.request_timeout_seconds,
+    ) as client:
         repos, remaining = await list_user_repositories(
             client,
             username,

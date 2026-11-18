@@ -11,7 +11,17 @@ from dataclasses import dataclass, field
 import httpx
 from starlette.responses import JSONResponse
 
+from core.token_pool import GITHUB_RESPONSE_HOOKS
+
 logger = logging.getLogger("stats_api")
+
+
+def _client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=4.0,
+        follow_redirects=True,
+        event_hooks=GITHUB_RESPONSE_HOOKS,
+    )
 
 
 @dataclass
@@ -36,7 +46,7 @@ async def http_client():
     if current:
         yield current.client
     else:
-        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+        async with _client() as client:
             yield client
 
 
@@ -70,7 +80,7 @@ class RequestBudgetMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         started, sent, status = time.monotonic(), False, 500
-        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+        async with _client() as client:
             current = RequestState(started + self.seconds, client)
             token = state.set(current)
 

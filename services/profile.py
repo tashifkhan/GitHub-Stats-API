@@ -5,6 +5,8 @@ import re
 from typing import Dict, List, Optional, cast
 
 import httpx
+
+from core.token_pool import GITHUB_RESPONSE_HOOKS
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
@@ -103,7 +105,7 @@ async def get_user_pinned_repos(
 
 async def get_user_profile(username: str, token: str) -> Dict:
     """Fetch a user's public profile from the GitHub REST API."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         response = await client.get(
             f"{GITHUB_API}/users/{username}",
             headers=github_headers(token),
@@ -120,7 +122,7 @@ async def get_user_profile(username: str, token: str) -> Dict:
 
 async def get_user_social_accounts(username: str, token: str) -> List[Dict]:
     """Fetch a user's linked social accounts (LinkedIn, Mastodon, etc.) from the GitHub REST API."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks=GITHUB_RESPONSE_HOOKS) as client:
         response = await client.get(
             f"{GITHUB_API}/users/{username}/social_accounts",
             headers=github_headers(token),
