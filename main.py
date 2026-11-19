@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
+from core.analytics import AnalyticsMiddleware
 from core.middleware import CacheRateLimitMiddleware
 
 app = FastAPI(
@@ -32,6 +33,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(CacheRateLimitMiddleware, platform="github")
 app.add_middleware(RequestBudgetMiddleware)
+# Outside the cache so cache hits and 429s are counted; inside CORS.
+app.add_middleware(AnalyticsMiddleware, api="github")
 # Added last so it is outermost: budget 504s and 429s still carry CORS headers.
 app.add_middleware(
     CORSMiddleware,
