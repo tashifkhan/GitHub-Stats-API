@@ -234,6 +234,16 @@ class TestFetchCommitFiles:
     def test_error_status_returns_none(self):
         assert self._run(None, status_code=500) is None
 
+    def test_file_cap_counts_listed_files_instead_of_failing(self):
+        # GitHub stops listing at 3000 files and retries return the same
+        # prefix, so the cap must settle the commit, not defer it forever.
+        files = [
+            {"filename": f"node_modules/pkg{i}/index.js", "additions": 1, "deletions": 0}
+            for i in range(attribution.COMMIT_FILES_CAP)
+        ]
+        result = self._run({"parents": [{"sha": "p"}], "files": files})
+        assert result == files
+
 
 class TestFetchContributorTotals:
     def test_splits_user_from_repo_totals(self):

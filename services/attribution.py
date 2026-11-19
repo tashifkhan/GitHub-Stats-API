@@ -420,6 +420,10 @@ async def _list_coauthored_commits(
     return CoauthoredCommits(**scan.coauthors.get(username.lower(), {}), complete=scan.complete)
 
 
+# GitHub's hard limit on files returned for one commit, across all pages.
+COMMIT_FILES_CAP = 3000
+
+
 async def _fetch_commit_files(
     client: httpx.AsyncClient,
     owner: str,
@@ -454,10 +458,13 @@ async def _fetch_commit_files(
             if isinstance(parents, list) and len(parents) > 1:
                 return []
             files.extend(payload["files"])
-            # GitHub caps commit detail responses at 3000 files. At that
-            # boundary the API cannot establish that the diff is complete.
-            if len(files) >= 3000:
-                return None
+            # GitHub lists at most 3000 files per commit and every retry gets
+            # the same prefix, so returning None here kept the repo uncached
+            # and its owner "pending" forever. Count the listed files instead.
+            # Commits this large are nearly always vendored or generated code
+            # (committing node_modules), which is_vendored() drops anyway.
+            if len(files) >= COMMIT_FILES_CAP:
+                return files[:COMMIT_FILES_CAP]
             match = re.search(r'<([^>]+)>;\s*rel="next"', response.headers.get("Link", ""))
             url = match.group(1) if match else ""
     return files
