@@ -18,7 +18,7 @@ from services.contributions import (
     calculate_total_commits,
     get_contribution_graphs,
 )
-from services.languages import get_attributed_language_stats, get_language_stats
+from services.languages import StaleLanguages, get_attributed_language_stats, get_language_stats
 from services.profile import (
     get_user_pinned_repos,
     get_user_profile,
@@ -210,6 +210,10 @@ class AnalyticsService:
             language_metadata.update(language_result.detail)
             language_metadata["status"] = "pending"
             language_result = []
+        elif isinstance(language_result, StaleLanguages):
+            # Last complete ranking while changed repos are re-measured.
+            language_metadata.update(language_result.detail)
+            language_metadata["status"] = "stale"
         if isinstance(language_result, BaseException):
             if (
                 isinstance(language_result, HTTPException)

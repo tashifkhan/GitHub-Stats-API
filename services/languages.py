@@ -1,6 +1,7 @@
 import asyncio
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
 import re
 from typing import Dict, List, Optional, cast
 
@@ -39,6 +40,26 @@ COMPLETE_MARKER_TTL_SECONDS = 6 * 60 * 60
 
 def _complete_marker(username: str) -> str:
     return "gh:attr:complete:" + username.lower()
+
+
+# How long the last complete ranking can stand in for a pending one. Any push
+# changes a repo's cache key, so without this every push to any of the user's
+# repos blanks their languages until the scheduled worker re-measures it.
+LAST_COMPLETE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _last_complete_key(username: str, excluded_languages: List[str], include_forks: bool) -> str:
+    excluded = ",".join(sorted({language.strip().lower() for language in excluded_languages}))
+    digest = hashlib.sha256(excluded.encode()).hexdigest()[:12]
+    return f"gh:attr:last:{username.lower()}:{int(include_forks)}:{digest}"
+
+
+class StaleLanguages(list):
+    """The last complete ranking, served while a fresh walk is pending."""
+
+    def __init__(self, items, detail: Dict[str, object]):
+        super().__init__(items)
+        self.detail = detail
 
 
 def github_headers(token: str) -> Dict[str, str]:
@@ -122,7 +143,8 @@ async def get_attributed_language_stats(
     # the user queued for the scheduled worker (scripts/drain_attribution.py).
     # Users with a recent complete result skip the queue.
     marker = _complete_marker(username)
-    queued = False if await cache.get_json(marker) else await enqueue("languages", username)
+    last_key = _last_complete_key(username, excluded_languages, include_forks)
+    queued =False if await cache.get_json(marker) else await enqueue("languages", username)
     stats = await get_user_contributions(
         username,
         token,
@@ -135,21 +157,40 @@ async def get_attributed_language_stats(
     if stats.partial or stats.truncated or (stats.coverage < 1.0 and stats.repos_considered):
         # A pushed repo can make a once-complete user incomplete again.
         queued = queued or await enqueue("languages", username)
+        detail = {
+            "code": "language_attribution_pending",
+            "message": "Complete authored-language measurements are not available yet.",
+            "coverage": stats.coverage,
+            "partial": stats.partial,
+            "truncated": stats.truncated,
+            "basis": "authored_additions",
+            "refreshQueued": queued,
+        }
+        last = await cache.get_json(last_key)
+        if isinstance(last, dict) and isinstance(last.get("languages"), list):
+            try:
+                return StaleLanguages(
+                    [LanguageData(**item) for item in last["languages"]],
+                    {**detail, "measuredAt": last.get("measuredAt")},
+                )
+            except (TypeError, ValueError):
+                pass
         raise HTTPException(
             status_code=503,
-            detail={
-                "code": "language_attribution_pending",
-                "message": "Complete authored-language measurements are not available yet.",
-                "coverage": stats.coverage,
-                "partial": stats.partial,
-                "truncated": stats.truncated,
-                "basis": "authored_additions",
-                "refreshQueued": queued,
-            },
+            detail=detail,
             headers={"Cache-Control": "no-store"},
         )
     await cache.set_json(marker, {"complete": True}, COMPLETE_MARKER_TTL_SECONDS)
-    return [
+    result = [
         LanguageData(name=language.name, percentage=language.percentage)
         for language in stats.languages
     ]
+    await cache.set_json(
+        last_key,
+        {
+            "languages": [item.model_dump() for item in result],
+            "measuredAt": datetime.now(timezone.utc).isoformat(),
+        },
+        LAST_COMPLETE_TTL_SECONDS,
+    )
+    return result

@@ -14,6 +14,7 @@ from routes.dependencies import (
 )
 from services import canonical_mapper
 from services.analytics_service import AnalyticsService
+from services.languages import StaleLanguages
 from services.stats_svg import stats_svg_response
 
 analytics_router = APIRouter()
@@ -95,6 +96,12 @@ async def get_user_language_stats(
         include_forks=include_forks,
     )
     response.headers["X-Language-Basis"] = "authored_additions" if attributed else "repository_bytes"
+    if isinstance(result, StaleLanguages):
+        response.headers["X-Language-Status"] = "stale"
+        response.headers["X-Language-Coverage"] = str(result.detail.get("coverage"))
+        # Keep shared caches from pinning the stale list past the refresh.
+        response.headers["Cache-Control"] = "no-store"
+        return list(result)
     response.headers["X-Language-Status"] = "complete"
     return result
 

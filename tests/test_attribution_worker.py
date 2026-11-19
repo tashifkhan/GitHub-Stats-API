@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 import core.jobs as jobs
 from core.token_pool import TokenPool
-from models.attribution import ContributionLanguageStats
+from models.attribution import ContributionLanguageStats, LanguageContribution
 from services import languages
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "drain_attribution.py"
@@ -68,6 +68,67 @@ def test_complete_result_sets_marker_and_later_requests_skip_the_queue(monkeypat
     queued.clear()
     asyncio.run(languages.get_attributed_language_stats("TAF", "unused", []))
     assert queued == []
+
+
+def test_pending_walk_serves_last_complete_ranking_as_stale(monkeypatch):
+    # A push changes one repo's cache key. Until the worker re-measures it,
+    # the previous complete ranking should stand in rather than a 503.
+    store = MemoryCache()
+    queued = []
+    walks = iter([
+        ContributionLanguageStats(
+            username="taf", repos_considered=4, coverage=1.0,
+            languages=[LanguageContribution(name="Rust", percentage=100.0, lines=10)],
+        ),
+        ContributionLanguageStats(username="taf", repos_considered=4, coverage=0.75, partial=True),
+    ])
+
+    async def walk(*args, **kwargs):
+        return next(walks)
+
+    async def enqueue(kind, subject):
+        queued.append(subject)
+        return True
+
+    monkeypatch.setattr(languages, "cache", store)
+    monkeypatch.setattr(languages, "get_user_contributions", walk)
+    monkeypatch.setattr(languages, "enqueue", enqueue)
+    fresh = asyncio.run(languages.get_attributed_language_stats("taf", "unused", ["Markdown"]))
+    assert [item.name for item in fresh] == ["Rust"]
+
+    stale = asyncio.run(languages.get_attributed_language_stats("TAF", "unused", ["markdown"]))
+    assert isinstance(stale, languages.StaleLanguages)
+    assert [item.name for item in stale] == ["Rust"]
+    assert stale.detail["coverage"] == 0.75
+    assert stale.detail["refreshQueued"] is True
+    assert stale.detail["measuredAt"]
+    # The pending read re-queues the user so the worker measures the change.
+    assert queued[-1] == "TAF"
+
+
+def test_stale_ranking_is_keyed_by_exclusions(monkeypatch):
+    store = MemoryCache()
+    walks = iter([
+        ContributionLanguageStats(
+            username="taf", repos_considered=4, coverage=1.0,
+            languages=[LanguageContribution(name="Rust", percentage=100.0, lines=10)],
+        ),
+        ContributionLanguageStats(username="taf", repos_considered=4, coverage=0.75, partial=True),
+    ])
+
+    async def walk(*args, **kwargs):
+        return next(walks)
+
+    async def enqueue(kind, subject):
+        return True
+
+    monkeypatch.setattr(languages, "cache", store)
+    monkeypatch.setattr(languages, "get_user_contributions", walk)
+    monkeypatch.setattr(languages, "enqueue", enqueue)
+    asyncio.run(languages.get_attributed_language_stats("taf", "unused", ["Markdown"]))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(languages.get_attributed_language_stats("taf", "unused", []))
+    assert error.value.status_code == 503
 
 
 def test_queueing_happens_before_the_walk(monkeypatch):
