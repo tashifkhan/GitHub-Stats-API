@@ -35,7 +35,7 @@ STAR_HEADERS = {
 
 
 # How long a complete attribution result exempts a user from queueing.
-COMPLETE_MARKER_TTL_SECONDS = 6 * 60 * 60
+COMPLETE_MARKER_TTL_SECONDS = 24 * 60 * 60
 
 
 def _complete_marker(username: str) -> str:
@@ -178,7 +178,7 @@ async def get_attributed_language_stats(
         raise HTTPException(
             status_code=503,
             detail=detail,
-            headers={"Cache-Control": "no-store"},
+            headers={"Cache-Control": "no-store", "CDN-Cache-Control": "no-store"},
         )
     await cache.set_json(marker, {"complete": True}, COMPLETE_MARKER_TTL_SECONDS)
     result = [

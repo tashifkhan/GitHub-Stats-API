@@ -36,9 +36,10 @@ class StoreRegressionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await source_module.source("lease-test", produce), {"ok": True})
         self.assertEqual(client.calls[0], {"ex": 10, "px": None, "nx": True})
 
-    def test_allowed_request_clears_violations(self):
-        allowed_branch = RATE_SCRIPT.split("if count <= tonumber(ARGV[1]) then", 1)[1].split("end", 1)[0]
-        self.assertIn("redis.call('DEL', KEYS[3])", allowed_branch)
+    def test_allowed_request_resets_violations_only_at_window_start(self):
+        allowed_branch = RATE_SCRIPT.split("if count <= tonumber(ARGV[1]) then", 1)[1].split("local violations", 1)[0]
+        self.assertIn("if count == 1 then redis.call('DEL', KEYS[3]) end", allowed_branch)
+        self.assertNotIn("\n redis.call('DEL', KEYS[3])", allowed_branch)
 
     def test_cors_is_outermost_middleware(self):
         from main import app
