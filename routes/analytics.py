@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Path, Query, Response
 from typing import Any, Dict, List, Optional
 
+from core.cache_control import _no_store
 from models.analytics import GitHubStatsResponse, LanguageData
 from models.attribution import ContributionLanguageStats
 from models.commits import CommitDetail
@@ -100,7 +101,7 @@ async def get_user_language_stats(
         response.headers["X-Language-Status"] = "stale"
         response.headers["X-Language-Coverage"] = str(result.detail.get("coverage"))
         # Keep shared caches from pinning the stale list past the refresh.
-        response.headers["Cache-Control"] = "no-store"
+        _no_store(response.headers)
         return list(result)
     response.headers["X-Language-Status"] = "complete"
     return result
@@ -208,7 +209,7 @@ async def get_user_contribution_breakdown(
     )
     # This route advances refresh progress. A cached response would prevent
     # later calls from continuing the scan.
-    response.headers["Cache-Control"] = "no-store"
+    _no_store(response.headers)
     return await analytics_service.get_user_contribution_breakdown(
         username, excluded_languages, include_forks=include_forks
     )
@@ -479,7 +480,7 @@ async def get_user_repos(
         username, attributed=attributed, full=full
     )
     if any(not repo.contributors_complete for repo in repos):
-        response.headers["Cache-Control"] = "no-store"
+        _no_store(response.headers)
     return repos
 
 
@@ -624,11 +625,14 @@ async def get_user_commits(
     },
 )
 async def get_profile_views_count(
+    response: Response,
     username: str = Path(..., description="GitHub username"),
     increment: bool = Query(True, description="Whether to increment the view count"),
     base: Optional[int] = Query(None, description="Base count to set (for migration)"),
     analytics_service: AnalyticsService = Depends(get_analytics_service),
 ) -> Dict[str, Any]:
+    # This route increments. Caching the answer freezes the counter.
+    _no_store(response.headers)
     return await analytics_service.get_profile_views_count(username, increment, base)
 
 
@@ -690,9 +694,11 @@ async def get_user_stats_svg(
     language_status = stats.languageStats.get("status", "complete")
     result.headers["X-Language-Status"] = language_status
     result.headers["X-Language-Basis"] = stats.languageStats.get("basis", "authored_additions")
-    result.headers["Cache-Control"] = (
-        "no-store" if language_status != "complete" else "public, max-age=3600"
-    )
+    # Complete cards keep the SVG helper's 1h edge window and 24h store entry.
+    # A pending language walk is genuinely incomplete, so it stays out of shared
+    # caches until the queued attribution job publishes a complete ranking.
+    if language_status != "complete":
+        _no_store(result.headers)
     return result
 
 
@@ -804,7 +810,7 @@ async def get_user_stats(
     )
     data = canonical_mapper.stats_from(stats)
     if stats.languageStats.get("status") != "complete":
-        response.headers["Cache-Control"] = "no-store"
+        _no_store(response.headers)
     return make_envelope(username, data, legacy=stats)
 
 

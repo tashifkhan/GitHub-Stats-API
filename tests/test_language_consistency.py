@@ -131,7 +131,9 @@ def test_language_defaults_and_precision_match_across_live_routes(monkeypatch, p
         assert language_response.status_code == 503
         assert stats_response.json()["languageStats"]["status"] == "pending"
         assert "Languages pending" in svg_response.text
-        assert stats_response.headers["Cache-Control"] == svg_response.headers["Cache-Control"] == "no-store"
+        for response in (language_response, stats_response, svg_response):
+            assert response.headers.get_list("cache-control") == ["no-store"]
+            assert response.headers.get_list("cdn-cache-control") == ["no-store"]
         assert stored == {}
     else:
         assert language_response.json() == stats_response.json()["topLanguages"]
@@ -139,6 +141,50 @@ def test_language_defaults_and_precision_match_across_live_routes(monkeypatch, p
         assert topics == [{"topic": "Python", "count": 99.75}, {"topic": "Rust", "count": 0.25}]
         assert "99.75%" in svg_response.text and "0.25%" in svg_response.text
         assert language_response.headers["X-Language-Basis"] == "authored_additions"
+
+
+@pytest.mark.parametrize("status", ["pending", "stale"])
+def test_incomplete_language_svg_sets_both_no_store_headers(monkeypatch, status):
+    from core import middleware
+    from core.rate_limit import RateLimitResult
+
+    stored = {}
+
+    class Service:
+        async def get_user_stats(self, username, excluded, **kwargs):
+            return GitHubStatsResponse(
+                status="success", message="retrieved", topLanguages=[],
+                totalCommits=12, longestStreak=2, currentStreak=1,
+                languageStats={"status": status, "basis": "authored_additions"},
+            )
+
+        async def get_user_stars(self, username):
+            return None
+
+    async def get_cache(key):
+        return None
+
+    async def set_cache(key, value, ttl):
+        stored[key] = ttl
+
+    async def allowed(*args, **kwargs):
+        return RateLimitResult(allowed=True)
+
+    monkeypatch.setattr(middleware, "redis_enabled", lambda: True)
+    monkeypatch.setattr(middleware, "get_json", get_cache)
+    monkeypatch.setattr(middleware, "set_json", set_cache)
+    monkeypatch.setattr(middleware, "check_rate_limit", allowed)
+    app = FastAPI()
+    app.include_router(analytics_router)
+    app.dependency_overrides[get_analytics_service] = Service
+    app.add_middleware(middleware.CacheRateLimitMiddleware, platform="github")
+    with TestClient(app) as client:
+        response = client.get("/tashifkhan/stats/svg")
+
+    assert response.status_code == 200
+    assert response.headers.get_list("cache-control") == ["no-store"]
+    assert response.headers.get_list("cdn-cache-control") == ["no-store"]
+    assert stored == {}
 
 
 def test_repo_task_failures_are_missing_coverage(monkeypatch):
