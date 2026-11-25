@@ -2,6 +2,8 @@ import os
 
 
 class CacheRateLimitSettings:
+    oracle_redis_url = os.getenv("ORACLE_REDIS_URL")
+    oracle_redis_ca_cert = os.getenv("ORACLE_REDIS_CA_CERT")
     redis_url = os.getenv("REDIS_URL")
     # Vercel's Upstash integration provisions these instead of a REDIS_URL, so
     # they are accepted as an equivalent transport rather than leaving a
