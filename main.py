@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CacheRateLimitMiddleware, platform="github")
 app.add_middleware(RequestBudgetMiddleware)
 # Outside the cache so cache hits and 429s are counted; inside CORS.
-app.add_middleware(AnalyticsMiddleware, api="github")
+app.add_middleware(AnalyticsMiddleware, api="github", wait=True)
 # Added last so it is outermost: budget 504s and 429s still carry CORS headers.
 app.add_middleware(
     CORSMiddleware,
